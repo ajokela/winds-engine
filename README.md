@@ -1,10 +1,12 @@
 # winds-engine
 
-Deterministic wind fields for trajectory simulation — profiles, gridded
-model ingestion and (maybe) diagnostic terrain flow, written in Rust as an
-extension of the ballistics-engine ecosystem.
+Wind *data* for rocket modeling: GRIB2/HRRR/GFS ingestion and radiosonde
+validation feeding ballistics-engine's wind profile types. Kernel-side wind
+modeling (the `WindField` trait, profiles, analytics) lives in
+ballistics-engine itself — this crate is the acquisition and validation
+pipeline, consumed by rockets-engine.
 
-Planning stage: see [docs/winds-engine-plan.md](docs/winds-engine-plan.md)
-for the go/no-go analysis and the Tier A plan.
+See [docs/winds-engine-plan.md](docs/winds-engine-plan.md) for the
+architecture decision and plan.
 
 MIT licensed (see LICENSE).
