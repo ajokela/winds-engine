@@ -103,31 +103,15 @@ impl Sounding {
     }
 
     /// The levels as a validated [`ProfileField`] (sorted and checked). Heights stay in metres
-    /// above mean sea level, as measured. A field read from a frame whose zero is the ground
-    /// needs [`Sounding::to_profile_field_above`] instead.
+    /// above mean sea level, as measured, so the field matches a frame whose y is height above
+    /// sea level (rockets-engine's) with no conversion. Any datum conversion belongs in one
+    /// place, ballistics-engine's `HeightOffset`, never in the levels as well.
     pub fn to_profile_field(&self) -> Result<ProfileField> {
-        self.profile_shifted_down(0.0)
-    }
-
-    /// The levels as a validated [`ProfileField`] whose heights are above a ground that sits
-    /// `ground_msl_m` metres above mean sea level: every altitude minus `ground_msl_m`.
-    ///
-    /// Use the elevation of the site the field will be read from (a launch pad, a firing
-    /// point), not of the sounding station; they differ when the balloon went up elsewhere.
-    /// Levels below that ground get negative heights. `ground_msl_m` must be finite.
-    pub fn to_profile_field_above(&self, ground_msl_m: f64) -> Result<ProfileField> {
-        if !ground_msl_m.is_finite() {
-            return Err(Error::invalid("ground_msl_m", "must be finite"));
-        }
-        self.profile_shifted_down(ground_msl_m)
-    }
-
-    fn profile_shifted_down(&self, datum_m: f64) -> Result<ProfileField> {
         ProfileField::new(
             self.levels
                 .iter()
                 .map(|l| ProfileLevel {
-                    altitude_m: l.altitude_m - datum_m,
+                    altitude_m: l.altitude_m,
                     speed_mps: l.speed_mps,
                     direction_from_deg: l.direction_from_deg,
                 })
