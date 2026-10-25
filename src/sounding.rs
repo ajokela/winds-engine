@@ -95,13 +95,39 @@ impl Sounding {
         })
     }
 
-    /// The levels as a validated [`ProfileField`] (sorted and checked).
+    /// The lowest measured altitude, metres above mean sea level. In a standard sounding this
+    /// is the station's surface report, so it is the station's elevation. `None` when there
+    /// are no levels.
+    pub fn surface_altitude_m(&self) -> Option<f64> {
+        self.levels.iter().map(|l| l.altitude_m).reduce(f64::min)
+    }
+
+    /// The levels as a validated [`ProfileField`] (sorted and checked). Heights stay in metres
+    /// above mean sea level, as measured. A field read from a frame whose zero is the ground
+    /// needs [`Sounding::to_profile_field_above`] instead.
     pub fn to_profile_field(&self) -> Result<ProfileField> {
+        self.profile_shifted_down(0.0)
+    }
+
+    /// The levels as a validated [`ProfileField`] whose heights are above a ground that sits
+    /// `ground_msl_m` metres above mean sea level: every altitude minus `ground_msl_m`.
+    ///
+    /// Use the elevation of the site the field will be read from (a launch pad, a firing
+    /// point), not of the sounding station; they differ when the balloon went up elsewhere.
+    /// Levels below that ground get negative heights. `ground_msl_m` must be finite.
+    pub fn to_profile_field_above(&self, ground_msl_m: f64) -> Result<ProfileField> {
+        if !ground_msl_m.is_finite() {
+            return Err(Error::invalid("ground_msl_m", "must be finite"));
+        }
+        self.profile_shifted_down(ground_msl_m)
+    }
+
+    fn profile_shifted_down(&self, datum_m: f64) -> Result<ProfileField> {
         ProfileField::new(
             self.levels
                 .iter()
                 .map(|l| ProfileLevel {
-                    altitude_m: l.altitude_m,
+                    altitude_m: l.altitude_m - datum_m,
                     speed_mps: l.speed_mps,
                     direction_from_deg: l.direction_from_deg,
                 })
