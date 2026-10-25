@@ -33,8 +33,9 @@ All in the existing `wind` module, alongside the untouched `WindSock`:
 - `ProfileField` — piecewise-linear vertical profile
   `Vec<(altitude_m, speed_mps, direction_deg)>`.
 - Analytic profiles: `LogProfile` (roughness boundary layer) and
-  `EkmanProfile` (geostrophic + latitude + roughness), consistent with the
-  kernel's atmosphere tables.
+  `EkmanProfile` (geostrophic speed, latitude, a constant eddy viscosity
+  and the geostrophic wind's direction), consistent with the kernel's
+  atmosphere tables.
 - An adapter so `WindSock` satisfies `WindField` — old and new interop;
   no consumer changes required.
 
@@ -102,10 +103,18 @@ First milestone: kernel `WindField` release + rockets-engine
 The crate exists with the modeling core **staged in it** rather than
 waiting on the kernel release, because a useful initial crate needed the
 types to exist somewhere. `src/field.rs` (`Wind`/`WindField`/
-`ConstantField`/`ProfileField`), `src/analytic.rs` (`LogProfile`,
-`EkmanProfile`) are byte-for-byte candidates for promotion into
-ballistics-engine's `wind` module; at that kernel release this crate
-re-exports them and drops its copies. Zero dependencies, 12 tests
+`ConstantField`/`ProfileField`) and `src/analytic.rs` (`LogProfile`,
+`EkmanProfile`) are this crate's own types. ballistics-engine's `wind`
+module (unreleased) adapted them rather than copying them, and its
+versions differ: `WindField::wind(&self, time_s: f64, position_m:
+Vector3<f64>) -> Vector3<f64>` with no `Wind` type,
+`ConstantField(pub Vector3<f64>)`, private `LogProfile`/`EkmanProfile`
+fields behind getters, and constructors returning `WindFieldError` (its
+`EkmanProfile` also rejects latitude 0, which this crate accepts).
+Moving winds-engine onto those types changes winds-engine's public API
+(the README example's `[f64; 3]` positions and `Wind` results,
+`validate()`'s `ProfileField` argument), so it is a deliberate breaking
+release, not a drop-in re-export. Zero dependencies, 12 tests
 including a real 115-level KMPX sounding (IEM RAOB archive, checked in as
 `tests/data/mpx_20261023_00z.txt`), CI on GitHub.
 

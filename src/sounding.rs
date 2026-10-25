@@ -108,8 +108,8 @@ impl Sounding {
     ///
     /// Convert datums in one place only, never in these levels as well. This crate's staged
     /// types have no offset wrapper: ballistics-engine's `HeightOffset` (from its next release)
-    /// wraps only ballistics-engine's own `WindField`, not this crate's. Until winds-engine
-    /// re-exports ballistics-engine's wind types, a caller in a sea-level frame reads a
+    /// wraps only ballistics-engine's own `WindField`, not this crate's (the two crates' wind
+    /// types differ; see the [crate docs](crate)). So a caller in a sea-level frame reads a
     /// ground-relative field such as [`LogProfile`](crate::analytic::LogProfile) or
     /// [`EkmanProfile`](crate::analytic::EkmanProfile) at `y - ground elevation` at its single
     /// call site, or builds ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from

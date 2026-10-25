@@ -3,10 +3,17 @@
 //!
 //! Everything here is stateless and reproducible from inputs: no network, no
 //! wall clock, no unseeded randomness. The [`WindField`] trait, the profile
-//! types and the analytic profiles are the staging ground for the modeling
-//! core planned for ballistics-engine's `wind` module (see
-//! `docs/winds-engine-plan.md`); when that kernel release lands they move
-//! there unchanged and this crate re-exports them.
+//! types and the analytic profiles are this crate's own. They were the
+//! staging ground for the modeling core planned for ballistics-engine's
+//! `wind` module (see `docs/winds-engine-plan.md`), but ballistics-engine's
+//! wind fields (unreleased) differ: its `WindField::wind` takes and returns
+//! `nalgebra::Vector3<f64>`, with no counterpart to [`Wind`]; its
+//! `ConstantField` is a tuple struct over that vector; its `LogProfile` and
+//! `EkmanProfile` keep their fields private behind getters; and its
+//! constructors return `WindFieldError`. Moving this crate onto those types
+//! changes its public API (every [`WindField::wind`] call,
+//! [`validate::validate`]'s signature), so it is a deliberate breaking
+//! release, not a drop-in re-export.
 //!
 //! - [`field`]: the [`WindField`] trait, [`ConstantField`], [`ProfileField`].
 //! - [`analytic`]: [`LogProfile`](analytic::LogProfile) and
