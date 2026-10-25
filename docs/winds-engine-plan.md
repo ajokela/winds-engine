@@ -125,7 +125,7 @@ validation days (one is checked in already).
 
 ## Status: integrated (2026-10-25)
 
-winds-engine 0.1.0 is on crates.io and rockets-engine consumes it:
+winds-engine is on crates.io and rockets-engine consumes it:
 `BallisticForces::with_wind_field`, `Weathercock::with_wind_field` and
 `RecoveryForces::with_wind_field` share an `Arc<dyn WindField>`, and the
 CLI flies `--wind-profile alt:speed:dir,...` and `--wind-sounding file`
@@ -134,7 +134,5 @@ recovery all sample the same field, turbulence composing on top. The
 kernel's own `WindField` work is on ballistics-engine's
 `agent/wind-field-20261025` branch; when that release lands, this crate
 moves onto the kernel types in a breaking release (above) and
-rockets-engine switches its import. 0.1.0 predates the Ekman sign fix on
-main, so its `EkmanProfile` turns the wrong way until the next release;
-rockets-engine's CLI builds only profile and sounding fields, which it
-does not touch. Next up here: GRIB acquisition (the remaining risk item).
+rockets-engine switches its import. 0.1.0 turned the Ekman spiral the
+wrong way; 0.1.1 turns it the right way. Next up here: GRIB acquisition (the remaining risk item).
