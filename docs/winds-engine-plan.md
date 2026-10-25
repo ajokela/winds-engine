@@ -46,7 +46,11 @@ rockets-engine then gains an additive `BallisticForces::with_wind_field`
 
 1. GRIB2 ingestion (HRRR/GFS u/v on isobaric levels) → kernel
    `ProfileField` at a launch coordinate: bilinear horizontal
-   interpolation, altitude conversion, offline cache, NOAA NOMADS subset
+   interpolation, altitude conversion to heights above sea level
+   (geopotential height of each isobaric level to metres above sea level,
+   the same datum as radiosonde soundings; any ground-relative conversion
+   is left to ballistics-engine's `HeightOffset` at the consumer, in one
+   place only), offline cache, NOAA NOMADS subset
    HTTP as the acquisition path (feature-gated `download`, off by default
    so the crate stays embeddable/WASM-safe).
 2. Radiosonde validation datasets (University of Wyoming sounding

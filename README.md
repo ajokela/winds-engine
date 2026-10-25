@@ -8,7 +8,7 @@ ballistics-engine's `wind` module; see
 [docs/winds-engine-plan.md](docs/winds-engine-plan.md).
 
 ```rust
-use winds_engine::{ProfileField, ProfileLevel, Sounding, WindField, validate};
+use winds_engine::{Sounding, WindField, validate};
 
 // A measured sounding in the line-based interchange format. Heights are
 // metres above sea level; this station's surface report is at 287 m.
@@ -27,11 +27,23 @@ let report = validate::validate(&profile, &sounding);
   `ConstantField`, `LogProfile`, `EkmanProfile`.
 - `Sounding`: radiosonde interchange format (tested against a real
   115-level KMPX sounding from the IEM RAOB archive). Heights are above sea
-  level and stay that way in `to_profile_field()`. The log and Ekman
-  profiles measure height from the ground, so in a sea-level frame they are
-  read through ballistics-engine's `HeightOffset` with minus the ground
-  elevation. Convert in one place only: shifting a sounding as well would
-  move every wind by the site elevation.
+  level and stay that way in `to_profile_field()`, so the profile reads
+  directly in a frame whose y is altitude above sea level, as in
+  rockets-engine (with `BallisticForces` and in its flat-frame CLI, whose
+  ground is sea level: impact at y = 0).
+- Datum conversion: `LogProfile` and `EkmanProfile` take y as height above
+  the ground, where they are calm. This crate's staged types have no offset
+  wrapper; ballistics-engine's `HeightOffset` (from its next release, which
+  rockets-engine's `=0.48.0` pin does not have) wraps only
+  ballistics-engine's own `WindField`. Until winds-engine re-exports
+  ballistics-engine's wind types, a caller in a sea-level frame either reads
+  them at `y - ground elevation` at its single call site, or builds
+  ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from the
+  same values and wraps those in `HeightOffset` (offset = the height of the
+  caller's y = 0 in the field's datum: minus the ground elevation for a log
+  or Ekman profile, none for a sea-level sounding). Convert in one place
+  only: sounding heights stay above sea level, and shifting them as well
+  would move every wind by the site elevation.
 - `validate`: speed/direction RMSE and per-layer errors vs a sounding.
 
 Zero dependencies, no network, no wall clock, no unseeded randomness.
