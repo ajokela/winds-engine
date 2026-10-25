@@ -35,9 +35,9 @@ let report = validate::validate(&profile, &sounding);
   the ground, where they are calm. This crate's staged types have no offset
   wrapper; ballistics-engine's `HeightOffset` (from its next release, which
   rockets-engine's `=0.48.0` pin does not have) wraps only
-  ballistics-engine's own `WindField`. Until winds-engine re-exports
-  ballistics-engine's wind types, a caller in a sea-level frame either reads
-  them at `y - ground elevation` at its single call site, or builds
+  ballistics-engine's own `WindField`, not this crate's. So a caller in a
+  sea-level frame either reads them at `y - ground elevation` at its single
+  call site, or builds
   ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from the
   same values and wraps those in `HeightOffset` (offset = the height of the
   caller's y = 0 in the field's datum: minus the ground elevation for a log
@@ -45,6 +45,15 @@ let report = validate::validate(&profile, &sounding);
   only: sounding heights stay above sea level, and shifting them as well
   would move every wind by the site elevation.
 - `validate`: speed/direction RMSE and per-layer errors vs a sounding.
+- Relationship to ballistics-engine: these types are this crate's own.
+  ballistics-engine's wind fields (unreleased) were adapted from them and
+  differ: `WindField::wind` takes and returns `nalgebra::Vector3<f64>` and
+  there is no `Wind` type, `ConstantField` is a tuple struct over that
+  vector, `LogProfile`/`EkmanProfile` keep their fields private behind
+  getters, and constructors return `WindFieldError`. Moving winds-engine
+  onto them changes this crate's public API (the example above,
+  `validate()`'s signature), so it is a deliberate breaking release, not a
+  drop-in re-export.
 
 Zero dependencies, no network, no wall clock, no unseeded randomness.
 GRIB2/HRRR/GFS acquisition is the next milestone (risk item in the plan).
