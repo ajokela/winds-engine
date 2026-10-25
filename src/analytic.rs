@@ -6,6 +6,13 @@ use crate::{Error, Result};
 /// Log-law boundary layer: `u(z) = u_ref · ln(z/z0) / ln(z_ref/z0)` for
 /// `z > z0`, zero below the roughness length `z0`. Direction is constant
 /// with height.
+///
+/// `z` is height above the GROUND, the surface where the profile is calm:
+/// the altitude argument of [`speed_at`](Self::speed_at) and `position_m[1]`
+/// in [`WindField::wind`] must both be height above ground. In a frame whose
+/// y is altitude above sea level, read it at `y - ground elevation`, in one
+/// place only (this crate has no offset wrapper; see
+/// [`Sounding::to_profile_field`](crate::Sounding::to_profile_field)).
 #[derive(Debug, Clone, Copy)]
 pub struct LogProfile {
     /// Wind speed at the reference height, m/s.
@@ -87,6 +94,13 @@ impl WindField for LogProfile {
 /// toward low pressure) and veers with height; the southern hemisphere
 /// mirrors this. The result is rotated so the geostrophic direction matches
 /// `direction_from_deg` aloft.
+///
+/// `z` is height above the GROUND, the surface where the spiral is calm:
+/// the altitude argument of [`wind_at`](Self::wind_at) and `position_m[1]`
+/// in [`WindField::wind`] must both be height above ground. In a frame whose
+/// y is altitude above sea level, read it at `y - ground elevation`, in one
+/// place only (this crate has no offset wrapper; see
+/// [`Sounding::to_profile_field`](crate::Sounding::to_profile_field)).
 #[derive(Debug, Clone, Copy)]
 pub struct EkmanProfile {
     /// Geostrophic wind speed aloft, m/s.

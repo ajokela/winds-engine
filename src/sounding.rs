@@ -103,9 +103,18 @@ impl Sounding {
     }
 
     /// The levels as a validated [`ProfileField`] (sorted and checked). Heights stay in metres
-    /// above mean sea level, as measured, so the field matches a frame whose y is height above
-    /// sea level (rockets-engine's) with no conversion. Any datum conversion belongs in one
-    /// place, ballistics-engine's `HeightOffset`, never in the levels as well.
+    /// above mean sea level, as measured, so the field matches a frame whose y is altitude above
+    /// sea level (rockets-engine's, whose ground is sea level) with no conversion.
+    ///
+    /// Convert datums in one place only, never in these levels as well. This crate's staged
+    /// types have no offset wrapper: ballistics-engine's `HeightOffset` (from its next release)
+    /// wraps only ballistics-engine's own `WindField`, not this crate's. Until winds-engine
+    /// re-exports ballistics-engine's wind types, a caller in a sea-level frame reads a
+    /// ground-relative field such as [`LogProfile`](crate::analytic::LogProfile) or
+    /// [`EkmanProfile`](crate::analytic::EkmanProfile) at `y - ground elevation` at its single
+    /// call site, or builds ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from
+    /// the same values and wraps those in `HeightOffset`. This field, being above sea level,
+    /// needs no offset in a sea-level frame.
     pub fn to_profile_field(&self) -> Result<ProfileField> {
         ProfileField::new(
             self.levels

@@ -2,18 +2,22 @@
 //!
 //! Metrics are sampled at the sounding's own levels: speed RMSE, direction
 //! RMSE (circular), and mean absolute speed error per altitude layer
-//! (1, 3, 6 and 10 km boundaries, then the rest).
+//! (1, 3, 6 and 10 km boundaries, then the rest). Layers bin on the
+//! sounding's altitudes, which are above sea level, not above ground: for a
+//! station at 287 m the first layer spans only 713 m above ground.
 
 use crate::field::{ProfileField, WindField};
 use crate::sounding::Sounding;
 
-/// Altitude-layer boundaries, metres: 0–1 km, 1–3 km, 3–6 km, 6–10 km, rest.
+/// Altitude-layer boundaries, metres above sea level (the sounding's datum,
+/// not above ground): 0–1 km, 1–3 km, 3–6 km, 6–10 km, rest.
 const LAYER_TOPS_M: [f64; 4] = [1_000.0, 3_000.0, 6_000.0, 10_000.0];
 
 /// Mean absolute speed error within one altitude layer.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LayerError {
-    /// Top of the layer, metres (`f64::INFINITY` for the open layer).
+    /// Top of the layer, metres above sea level (`f64::INFINITY` for the
+    /// open layer).
     pub top_m: f64,
     /// Mean absolute speed error, m/s.
     pub mean_abs_speed_error_mps: f64,
@@ -34,7 +38,9 @@ pub struct ValidationReport {
     pub layers: Vec<LayerError>,
 }
 
-/// Sample `profile` at every sounding level and compute the metrics.
+/// Sample `profile` at every sounding level and compute the metrics. The
+/// profile is read at the sounding's altitudes, above sea level, so its
+/// levels must be in that datum too.
 pub fn validate(profile: &ProfileField, sounding: &Sounding) -> ValidationReport {
     let mut speed_sq = 0.0;
     let mut direction_sq = 0.0;
