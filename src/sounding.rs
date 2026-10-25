@@ -104,7 +104,7 @@ impl Sounding {
 
     /// The levels as a validated [`ProfileField`] (sorted and checked). Heights stay in metres
     /// above mean sea level, as measured, so the field matches a frame whose y is altitude above
-    /// sea level (rockets-engine's, whose ground is sea level) with no conversion.
+    /// sea level (rockets-engine's) with no conversion, wherever that frame's ground sits.
     ///
     /// Convert datums in one place only, never in these levels as well. This crate's staged
     /// types have no offset wrapper: ballistics-engine's `HeightOffset` (from its next release)

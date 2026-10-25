@@ -30,7 +30,7 @@ let report = validate::validate(&profile, &sounding);
   level and stay that way in `to_profile_field()`, so the profile reads
   directly in a frame whose y is altitude above sea level, as in
   rockets-engine (with `BallisticForces` and in its flat-frame CLI, whose
-  ground is sea level: impact at y = 0).
+  ground sits at `--ground-altitude-m`, sea level by default).
 - Datum conversion: `LogProfile` and `EkmanProfile` take y as height above
   the ground, where they are calm. This crate's staged types have no offset
   wrapper; ballistics-engine's `HeightOffset` (from its next release, which
