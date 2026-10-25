@@ -187,7 +187,7 @@
     </svg>
   </header>
 
-  <div class="install"><span class="p"># Cargo.toml (not on crates.io yet)</span><br>winds-engine = { git = "https://github.com/ajokela/winds-engine" }</div>
+  <div class="install"><span class="p"># Cargo.toml</span><br>winds-engine = "0.1"</div>
 
   <h2>What it does</h2>
   <ul>
@@ -246,11 +246,11 @@
   <h2>Where it fits</h2>
   <ul>
     <li><b>ballistics-engine</b> — winds-engine is where the wind-field types were staged. ballistics-engine's own wind-field core, not yet released, was adapted from them but has a different API (nalgebra vectors in and out, no <code>Wind</code> type, its own error type). Moving winds-engine onto it changes this crate's public API, so that will be a deliberate breaking release, not a drop-in swap.</li>
-    <li><b>rockets-engine</b> — the consumer it is built for: sounding profiles keep sea-level heights, the same height datum as rockets-engine's frame. rockets-engine does not depend on winds-engine yet; the plan feeds it wind through ballistics-engine's wind-field types, so it waits on the breaking move above.</li>
+    <li><b>rockets-engine</b> — the consumer it is built for: sounding profiles keep sea-level heights, the same height datum as rockets-engine's frame. Since rockets-engine 0.16.0 it depends on winds-engine: <code>BallisticForces</code>, the weathercock and the recovery descent share an <code>Arc&lt;dyn WindField&gt;</code>, and the CLI flies <code>--wind-profile</code> and <code>--wind-sounding</code>. When the ballistics-engine wind-field release lands, winds-engine moves to the kernel API in a deliberate breaking release and rockets-engine follows.</li>
   </ul>
 
   <h2>Status</h2>
-  <p>Version 0.1.0, staging. Not published on crates.io, so there is no docs.rs page; use it as a git dependency (above). It is a library only, with no CLI and no browser terminal.</p>
+  <p>Version 0.1.0, published on <a href="https://crates.io/crates/winds-engine">crates.io</a>; API docs at <a href="https://docs.rs/winds-engine">docs.rs/winds-engine</a>. It is a library only, with no CLI and no browser terminal.</p>
   <p class="note">Planned, not built: GRIB2 forecast ingestion (HRRR/GFS), with only the download step behind an opt-in feature, and more sounding validation days.</p>
 
   <h2>Get it</h2>
