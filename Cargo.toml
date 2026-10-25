@@ -1,0 +1,12 @@
+[package]
+name = "winds-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+description = "Deterministic wind profiles and radiosonde validation for trajectory simulation"
+license = "MIT"
+repository = "https://github.com/ajokela/winds-engine"
+keywords = ["wind", "ballistics", "radiosonde", "trajectory"]
+categories = ["science", "simulation"]
+
+[dependencies]

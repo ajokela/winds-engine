@@ -92,3 +92,20 @@ rockets-engine then gains an additive `BallisticForces::with_wind_field`
 First milestone: kernel `WindField` release + rockets-engine
 `--wind-profile` end to end, validated against two sounding days. Then
 `winds-engine 0.1.0` with one GRIB product.
+
+## Status: winds-engine 0.1.0 scaffolded (2026-10-24)
+
+The crate exists with the modeling core **staged in it** rather than
+waiting on the kernel release, because a useful initial crate needed the
+types to exist somewhere. `src/field.rs` (`Wind`/`WindField`/
+`ConstantField`/`ProfileField`), `src/analytic.rs` (`LogProfile`,
+`EkmanProfile`) are byte-for-byte candidates for promotion into
+ballistics-engine's `wind` module; at that kernel release this crate
+re-exports them and drops its copies. Zero dependencies, 12 tests
+including a real 115-level KMPX sounding (IEM RAOB archive, checked in as
+`tests/data/mpx_20261023_00z.txt`), CI on GitHub.
+
+Revised order: (1) promote the staged modeling core into ballistics-engine
+(one kernel release), (2) rockets-engine `with_wind_field` /
+`--wind-profile` against it, (3) GRIB acquisition here, (4) more sounding
+validation days (one is checked in already).
