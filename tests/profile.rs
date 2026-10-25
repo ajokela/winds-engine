@@ -201,3 +201,47 @@ fn golden_sounding_validates_against_a_smoothed_profile() {
         report.speed_rmse_mps
     );
 }
+
+#[test]
+fn sounding_heights_are_sea_level_and_convert_to_a_site_ground() {
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/mpx_20261023_00z.txt"
+    ))
+    .unwrap();
+    let sounding = Sounding::parse(&text).unwrap();
+    // The station's surface report is the lowest level: KMPX sits 287 m above sea level.
+    assert_eq!(sounding.surface_altitude_m(), Some(287.0));
+    let msl = sounding.to_profile_field().unwrap();
+    assert_eq!(msl.levels()[0].altitude_m, 287.0);
+
+    // Above the station's own ground: the surface level moves to height 0.
+    let agl = sounding.to_profile_field_above(287.0).unwrap();
+    assert_eq!(agl.levels()[0].altitude_m, 0.0);
+    assert_eq!(agl.levels().len(), msl.levels().len());
+    assert_eq!(agl.wind_at(0.0), msl.wind_at(287.0));
+
+    // A launch site 400 m above sea level reads the sounding 400 m lower down the column.
+    let site = sounding.to_profile_field_above(400.0).unwrap();
+    for y in [0.0, 100.0, 1234.5, 8000.0] {
+        let (a, b) = (site.wind_at(y), msl.wind_at(y + 400.0));
+        assert!(
+            (a.x_mps - b.x_mps).abs() < 1e-9 && (a.z_mps - b.z_mps).abs() < 1e-9,
+            "y {y}"
+        );
+    }
+
+    let err = sounding.to_profile_field_above(f64::NAN).unwrap_err();
+    assert_eq!(err.field, "ground_msl_m");
+    assert!(sounding.to_profile_field_above(f64::INFINITY).is_err());
+}
+
+#[test]
+fn an_empty_sounding_has_no_surface() {
+    let sounding = Sounding {
+        station: None,
+        valid: None,
+        levels: vec![],
+    };
+    assert_eq!(sounding.surface_altitude_m(), None);
+}
