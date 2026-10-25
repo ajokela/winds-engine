@@ -114,7 +114,7 @@ fields behind getters, and constructors returning `WindFieldError` (its
 Moving winds-engine onto those types changes winds-engine's public API
 (the README example's `[f64; 3]` positions and `Wind` results,
 `validate()`'s `ProfileField` argument), so it is a deliberate breaking
-release, not a drop-in re-export. Zero dependencies, 12 tests
+release, not a drop-in re-export. Zero dependencies, 15 tests
 including a real 115-level KMPX sounding (IEM RAOB archive, checked in as
 `tests/data/mpx_20261023_00z.txt`), CI on GitHub.
 
@@ -133,5 +133,8 @@ CLI flies `--wind-profile alt:speed:dir,...` and `--wind-sounding file`
 recovery all sample the same field, turbulence composing on top. The
 kernel's own `WindField` work is on ballistics-engine's
 `agent/wind-field-20261025` branch; when that release lands, this crate
-re-exports the kernel types and rockets-engine switches its import. Next
-up here: GRIB acquisition (the remaining risk item).
+moves onto the kernel types in a breaking release (above) and
+rockets-engine switches its import. 0.1.0 predates the Ekman sign fix on
+main, so its `EkmanProfile` turns the wrong way until the next release;
+rockets-engine's CLI builds only profile and sounding fields, which it
+does not touch. Next up here: GRIB acquisition (the remaining risk item).
