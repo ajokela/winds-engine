@@ -77,12 +77,16 @@ impl WindField for LogProfile {
 
 /// Ekman spiral: the classic solution for a neutrally stratified boundary
 /// layer with constant eddy viscosity `K`. At the ground the wind is zero;
-/// aloft it approaches the geostrophic speed `G`, backing (NH) or veering
-/// (SH) with height. See Holton, *An Introduction to Dynamic Meteorology*.
+/// aloft it approaches the geostrophic speed `G`. See Holton, *An
+/// Introduction to Dynamic Meteorology*.
 ///
 /// `u = G(1 − e^(−γz)·cos(γz))`, `v = sign(f)·G·e^(−γz)·sin(γz)` with
-/// `γ = sqrt(|f| / 2K)` and Coriolis `f = 2Ω·sin(latitude)`. The result is
-/// rotated so the geostrophic direction matches `direction_from_deg` aloft.
+/// `γ = sqrt(|f| / 2K)` and Coriolis `f = 2Ω·sin(latitude)`. `u` runs along
+/// the geostrophic flow and `v` to its LEFT, so in the northern hemisphere
+/// the surface wind is backed about 45° from the geostrophic wind (turned
+/// toward low pressure) and veers with height; the southern hemisphere
+/// mirrors this. The result is rotated so the geostrophic direction matches
+/// `direction_from_deg` aloft.
 #[derive(Debug, Clone, Copy)]
 pub struct EkmanProfile {
     /// Geostrophic wind speed aloft, m/s.
@@ -159,12 +163,13 @@ impl EkmanProfile {
     /// matches `direction_from_deg`.
     pub fn wind_at(&self, altitude_m: f64) -> Wind {
         let (u, v) = self.components_at(altitude_m);
-        // Frame rotation: the solution's u points along the geostrophic
-        // flow; rotate into the requested geostrophic FROM-direction.
+        // The solution's u points along the geostrophic flow, (cos rot, sin rot)
+        // in (x, z), and v to its left. With +Y up and +Z to the right of +X,
+        // left of the flow is (sin rot, -cos rot).
         let flow_dir = self.direction_from_deg + 180.0;
         let rot = flow_dir.to_radians();
-        let x = u * rot.cos() - v * rot.sin();
-        let z = u * rot.sin() + v * rot.cos();
+        let x = u * rot.cos() + v * rot.sin();
+        let z = u * rot.sin() - v * rot.cos();
         Wind {
             x_mps: x,
             y_mps: 0.0,

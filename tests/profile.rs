@@ -245,3 +245,38 @@ fn an_empty_sounding_has_no_surface() {
     };
     assert_eq!(sounding.surface_altitude_m(), None);
 }
+
+#[test]
+fn ekman_backs_near_the_surface_in_the_north_and_veers_in_the_south() {
+    // Holton: in the northern hemisphere the surface wind is turned toward low pressure, 45°
+    // to the LEFT of (backed from) the geostrophic wind, and the wind veers with height. With
+    // +Y up and +Z to the right of +X (FROM 90° is FROM +Z), "left" is counterclockwise seen
+    // from above, which lowers the FROM angle. The southern hemisphere mirrors it.
+    let turn = |w: Wind, geo: f64| {
+        let mut d = (w.direction_from_deg() - geo).rem_euclid(360.0);
+        if d > 180.0 {
+            d -= 360.0;
+        }
+        d
+    };
+    let geo = 200.0;
+    let north = EkmanProfile::new(10.0, 45.0, 5.0, geo).unwrap();
+    let south = EkmanProfile::new(10.0, -45.0, 5.0, geo).unwrap();
+    assert!(
+        (turn(north.wind_at(0.01), geo) + 45.0).abs() < 0.01,
+        "{}",
+        turn(north.wind_at(0.01), geo)
+    );
+    assert!(
+        (turn(south.wind_at(0.01), geo) - 45.0).abs() < 0.01,
+        "{}",
+        turn(south.wind_at(0.01), geo)
+    );
+    // Veering with height in the north: the FROM angle rises from about geo - 45°.
+    let mut previous = turn(north.wind_at(1.0), geo);
+    for z in [50.0, 100.0, 200.0, 400.0] {
+        let now = turn(north.wind_at(z), geo);
+        assert!(now > previous, "z {z}: {now} <= {previous}");
+        previous = now;
+    }
+}
