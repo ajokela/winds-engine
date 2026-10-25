@@ -109,3 +109,16 @@ Revised order: (1) promote the staged modeling core into ballistics-engine
 (one kernel release), (2) rockets-engine `with_wind_field` /
 `--wind-profile` against it, (3) GRIB acquisition here, (4) more sounding
 validation days (one is checked in already).
+
+## Status: integrated (2026-10-25)
+
+winds-engine 0.1.0 is on crates.io and rockets-engine consumes it:
+`BallisticForces::with_wind_field`, `Weathercock::with_wind_field` and
+`RecoveryForces::with_wind_field` share an `Arc<dyn WindField>`, and the
+CLI flies `--wind-profile alt:speed:dir,...` and `--wind-sounding file`
+(the radiosonde interchange format) end to end — forces, weathercock and
+recovery all sample the same field, turbulence composing on top. The
+kernel's own `WindField` work is on ballistics-engine's
+`agent/wind-field-20261025` branch; when that release lands, this crate
+re-exports the kernel types and rockets-engine switches its import. Next
+up here: GRIB acquisition (the remaining risk item).
