@@ -3,7 +3,8 @@
 use crate::{Error, Result};
 
 /// World-frame air velocity, m/s: +X is downrange (tailwind), +Y is up, +Z
-/// is the horizontal cross axis. Vertical wind is zero for the horizontal
+/// is the horizontal cross axis to the right of +X (a right-handed frame,
+/// ballistics-engine's McCoy frame). Vertical wind is zero for the horizontal
 /// field types in this crate.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Wind {
