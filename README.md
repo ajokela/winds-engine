@@ -56,9 +56,12 @@ let report = validate::validate(&profile, &sounding);
   drop-in re-export.
 
 - `grib` (feature): decode GRIB2 forecast files (GFS isobaric HGT/UGRD/VGRD)
-  into a `ProfileField` at a point, offline and deterministic.
-- `download` (feature): fetch that GRIB2 subset live from NOAA NOMADS
-  (`fetch_profile`), the only networked code in the crate.
+  into a `ProfileField` at a point — bilinear-interpolated, offline and
+  deterministic.
+- `download` (feature): fetch live forecasts — GFS via the NOAA NOMADS
+  filter script (server-side subsetting) or HRRR's 3 km CONUS grids via
+  byte-range requests against the AWS mirror's index files — the only
+  networked code in the crate.
 
 Zero dependencies by default (`grib` adds the `grib` crate, `download` adds
 `ureq`); no wall clock or unseeded randomness anywhere — cycle date and

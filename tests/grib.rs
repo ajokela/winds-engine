@@ -25,12 +25,12 @@ fn golden_gfs_subset_decodes_to_a_profile() {
             level.altitude_m, level.speed_mps, level.direction_from_deg
         );
     }
-    // Pinned decode of the golden file at the nearest grid point (0.1%
-    // tolerance for float formatting).
+    // Pinned decode of the golden file, bilinear-interpolated to the point
+    // (0.1% tolerance for float formatting).
     let expected = [
-        (1583.0547, 2.5750, 63.5293),
-        (3167.6299, 15.0881, 249.2842),
-        (5809.4062, 21.6409, 259.7409),
+        (1583.5270, 2.7566, 60.9195),
+        (3169.2878, 15.0535, 247.1875),
+        (5812.0977, 21.2301, 258.2658),
     ];
     for (level, &(alt, speed, dir)) in levels.iter().zip(&expected) {
         assert!(

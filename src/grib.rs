@@ -31,6 +31,129 @@ impl Variable {
     }
 }
 
+/// Quantize a coordinate for map keys (1e-5° buckets).
+fn quantize(deg: f64) -> i64 {
+    (deg * 100_000.0).round() as i64
+}
+
+/// Bilinear interpolation over the enclosing grid cell, falling back to the
+/// nearest point when the target sits on the grid edge or outside it.
+fn bilinear_sample(
+    latlons: &[(f64, f64)],
+    values: &[f32],
+    latitude_deg: f64,
+    longitude_deg: f64,
+) -> Result<f32> {
+    use std::collections::HashMap;
+    // Only points near the target matter; prefilter to a small window so
+    // million-point grids stay cheap.
+    const WINDOW_DEG: f64 = 0.6;
+    let mut by_point: HashMap<(i64, i64), f32> = HashMap::new();
+    let mut lats: Vec<f64> = Vec::new();
+    let mut lons: Vec<f64> = Vec::new();
+    for (i, &(lat, lon)) in latlons.iter().enumerate() {
+        let mut dlon = (lon - longitude_deg).abs();
+        if dlon > 180.0 {
+            dlon = 360.0 - dlon;
+        }
+        if (lat - latitude_deg).abs() > WINDOW_DEG || dlon > WINDOW_DEG {
+            continue;
+        }
+        by_point.insert((quantize(lat), quantize(lon)), values[i]);
+        lats.push(lat);
+        lons.push(lon);
+    }
+    lats.sort_by(f64::total_cmp);
+    lats.dedup();
+    lons.sort_by(f64::total_cmp);
+    lons.dedup();
+    let cell = |axis: &[f64], x: f64| -> Option<(usize, usize, f64)> {
+        if x < axis[0] || x > axis[axis.len() - 1] {
+            return None;
+        }
+        let hi = axis
+            .iter()
+            .position(|&v| v >= x)
+            .unwrap_or(axis.len() - 1)
+            .max(1);
+        let (lo_v, hi_v) = (axis[hi - 1], axis[hi]);
+        let f = if hi_v > lo_v {
+            (x - lo_v) / (hi_v - lo_v)
+        } else {
+            0.0
+        };
+        Some((hi - 1, hi, f))
+    };
+    let nearest = |by_point: &HashMap<(i64, i64), f32>| -> Result<f32> {
+        if by_point.is_empty() {
+            // Target outside the window: full nearest scan (rare path).
+            let mut best = f32::NAN;
+            let mut best_dist = f64::INFINITY;
+            for (i, &(lat, lon)) in latlons.iter().enumerate() {
+                let dlat = lat - latitude_deg;
+                let mut dlon = (lon - longitude_deg).abs();
+                if dlon > 180.0 {
+                    dlon = 360.0 - dlon;
+                }
+                let dist = dlat * dlat + dlon * dlon;
+                if dist < best_dist {
+                    best_dist = dist;
+                    best = values[i];
+                }
+            }
+            if best_dist.is_infinite() {
+                return Err(Error::invalid("grib2", "grid has no points"));
+            }
+            return Ok(best);
+        }
+        // Nearest within the window (grid edge: no enclosing cell).
+        let mut best = f32::NAN;
+        let mut best_dist = f64::INFINITY;
+        for &(lat, lon) in latlons {
+            let key = (quantize(lat), quantize(lon));
+            let Some(&value) = by_point.get(&key) else {
+                continue;
+            };
+            let dlat = lat - latitude_deg;
+            let mut dlon = (lon - longitude_deg).abs();
+            if dlon > 180.0 {
+                dlon = 360.0 - dlon;
+            }
+            let dist = dlat * dlat + dlon * dlon;
+            if dist < best_dist {
+                best_dist = dist;
+                best = value;
+            }
+        }
+        if best_dist.is_infinite() {
+            return Err(Error::invalid("grib2", "grid has no points"));
+        }
+        Ok(best)
+    };
+    let (Some((j0, j1, fj)), Some((i0, i1, fi))) =
+        (cell(&lats, latitude_deg), cell(&lons, longitude_deg))
+    else {
+        return nearest(&by_point);
+    };
+    let corner = |j: usize, i: usize| {
+        by_point
+            .get(&(quantize(lats[j]), quantize(lons[i])))
+            .copied()
+    };
+    let (Some(v00), Some(v01), Some(v10), Some(v11)) = (
+        corner(j0, i0),
+        corner(j0, i1),
+        corner(j1, i0),
+        corner(j1, i1),
+    ) else {
+        return nearest(&by_point);
+    };
+    Ok(v00 * (1.0 - fi) as f32 * (1.0 - fj) as f32
+        + v01 * fi as f32 * (1.0 - fj) as f32
+        + v10 * (1.0 - fi) as f32 * fj as f32
+        + v11 * fi as f32 * fj as f32)
+}
+
 /// Decode GRIB2 messages with geopotential height, U and V components on
 /// isobaric surfaces into a [`ProfileField`] at one point.
 ///
@@ -83,30 +206,8 @@ pub fn profile_from_grib2(
             .dispatch()
             .map_err(|e| Error::invalid("grib2", format!("cannot decode values: {e}")))?
             .collect();
-        let mut best = usize::MAX;
-        let mut best_dist = f64::INFINITY;
-        for (i, &(lat, lon)) in latlons.iter().enumerate() {
-            let dlat = lat - latitude_deg;
-            let mut dlon = (lon - longitude_deg).abs();
-            if dlon > 180.0 {
-                dlon = 360.0 - dlon;
-            }
-            let dist = dlat * dlat + dlon * dlon;
-            if dist < best_dist {
-                best_dist = dist;
-                best = i;
-            }
-        }
-        if best == usize::MAX {
-            return Err(Error::invalid("grib2", "grid has no points"));
-        }
-        levels.push((
-            surface.scaled_value,
-            variable,
-            f64::from(values[best]),
-            latlons[best].0,
-            latlons[best].1,
-        ));
+        let value = bilinear_sample(&latlons, &values, latitude_deg, longitude_deg)?;
+        levels.push((surface.scaled_value, variable, f64::from(value), 0.0, 0.0));
     }
 
     // Assemble per-level samples: (pressure Pa, height, u, v).

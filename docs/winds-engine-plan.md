@@ -149,7 +149,16 @@ from the NOAA NOMADS filter API behind the `download` feature — the only
 networked code in the crate, with the cycle date and forecast hour as
 explicit parameters. A 2.7 KB golden GFS subset is checked in
 (`tests/data/gfs_20261026_00z_mpx.grib2`) with pinned decode values, and
-the live round-trip passes as an ignored test. Documented limits: GFS
-only (HRRR pressure files are not served by the NOMADS subset scripts;
-byte-range subsetting from the AWS mirror is a future option), nearest
-grid point rather than bilinear interpolation.
+the live round-trip passes as an ignored test.
+
+## Status: bilinear sampling and HRRR (2026-10-26)
+
+The two documented limits are closed: sampling is now bilinear over the
+enclosing grid cell (nearest point only at edges), and `Model::Hrrr`
+fetches HRRR's 3 km CONUS pressure grids via byte-range requests against
+the AWS mirror (`noaa-hrrr-bdp-pds`): the `.idx` sidecar gives message
+offsets, each HGT/UGRD/VGRD message is range-fetched and concatenated,
+and the same `profile_from_grib2` decodes them (HRRR's Lambert grid and
+complex packing are built into the `grib` crate). HRRR's index parsing
+is pinned against a checked-in golden `.idx`; the live round-trip runs
+as an ignored test.
