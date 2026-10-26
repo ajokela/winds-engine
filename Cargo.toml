@@ -1,6 +1,6 @@
 [package]
 name = "winds-engine"
-version = "0.1.1"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.89"
 description = "Deterministic wind profiles and radiosonde validation for trajectory simulation"
@@ -10,3 +10,10 @@ keywords = ["wind", "ballistics", "radiosonde", "trajectory"]
 categories = ["science", "simulation"]
 
 [dependencies]
+grib = { version = "0.20", default-features = false, optional = true }
+ureq = { version = "3", optional = true }
+
+[features]
+default = []
+grib = ["dep:grib"]
+download = ["grib", "dep:ureq"]

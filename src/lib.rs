@@ -22,7 +22,11 @@
 //! - [`validate`]: profile-vs-sounding comparison metrics.
 
 pub mod analytic;
+#[cfg(feature = "download")]
+pub mod download;
 pub mod field;
+#[cfg(feature = "grib")]
+pub mod grib;
 pub mod sounding;
 pub mod validate;
 

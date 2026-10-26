@@ -55,7 +55,13 @@ let report = validate::validate(&profile, &sounding);
   `validate()`'s signature), so it is a deliberate breaking release, not a
   drop-in re-export.
 
-Zero dependencies, no network, no wall clock, no unseeded randomness.
-GRIB2/HRRR/GFS acquisition is the next milestone (risk item in the plan).
+- `grib` (feature): decode GRIB2 forecast files (GFS isobaric HGT/UGRD/VGRD)
+  into a `ProfileField` at a point, offline and deterministic.
+- `download` (feature): fetch that GRIB2 subset live from NOAA NOMADS
+  (`fetch_profile`), the only networked code in the crate.
+
+Zero dependencies by default (`grib` adds the `grib` crate, `download` adds
+`ureq`); no wall clock or unseeded randomness anywhere — cycle date and
+forecast hour are explicit parameters.
 
 MIT licensed (see LICENSE).

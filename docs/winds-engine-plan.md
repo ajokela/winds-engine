@@ -135,4 +135,21 @@ kernel's own `WindField` work is on ballistics-engine's
 `agent/wind-field-20261025` branch; when that release lands, this crate
 moves onto the kernel types in a breaking release (above) and
 rockets-engine switches its import. 0.1.0 turned the Ekman spiral the
-wrong way; 0.1.1 turns it the right way. Next up here: GRIB acquisition (the remaining risk item).
+wrong way; 0.1.1 turns it the right way.
+
+## Status: GRIB acquisition done (2026-10-26)
+
+The remaining risk item is resolved on the first rung of the ladder: the
+`grib` crate handles GFS isobaric HGT/UGRD/VGRD with pure built-in
+decoders (no C dependencies). `grib::profile_from_grib2` decodes a GRIB2
+byte slice into a `ProfileField` (nearest grid point, geopotential
+heights, meteorological FROM rotated by the launch azimuth into the
+crate's frame), and `download::fetch_profile` fetches the subset live
+from the NOAA NOMADS filter API behind the `download` feature — the only
+networked code in the crate, with the cycle date and forecast hour as
+explicit parameters. A 2.7 KB golden GFS subset is checked in
+(`tests/data/gfs_20261026_00z_mpx.grib2`) with pinned decode values, and
+the live round-trip passes as an ignored test. Documented limits: GFS
+only (HRRR pressure files are not served by the NOMADS subset scripts;
+byte-range subsetting from the AWS mirror is a future option), nearest
+grid point rather than bilinear interpolation.
