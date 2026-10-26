@@ -41,18 +41,12 @@ cargo publish
 git push origin main
 ```
 
-## 4. Deploy the winds.rs site (separate checkout!)
+## 4. Deploy the winds.rs site
 
-The site source lives in `~/projects/winds-engine-agent` on branch
-`agent/sounding-datum-20261025` (it is not on this repo's main). To update
-the site copy:
+The site lives in this repo's `site/` and deploys from here (the same
+lifecycle as the crate, guarded by CI's version-string check):
 
 ```sh
-cd ~/projects/winds-engine-agent
-# edit site/index.html
-git add site/index.html
-git -c user.name="Alex Jokela" -c user.email="alex@camulus.com" commit -m "…"
-git push origin agent/sounding-datum-20261025
 aws s3 sync site/ s3://winds.rs/ --delete
 INV=$(aws cloudfront create-invalidation --distribution-id E2RFG1P8MLK47T --paths "/*" --query 'Invalidation.Id' --output text)
 aws cloudfront wait invalidation-completed --distribution-id E2RFG1P8MLK47T --id "$INV"
@@ -61,6 +55,10 @@ curl -s https://winds.rs/ | grep -o 'winds-engine = "0\.N"'   # confirm
 
 Infrastructure: S3 bucket `winds.rs`, CloudFront `E2RFG1P8MLK47T`
 (`d3utvj3ubazgyc.cloudfront.net`), aliases winds.rs + www.
+
+Note: an older working copy at `~/projects/winds-engine-agent` used to
+carry the site on a side branch; it is stale and no longer the source of
+truth — edit `site/` here.
 
 ## Determinism / dependency policy (per AGENTS.md)
 

@@ -14,6 +14,15 @@ jobs:
           components: rustfmt, clippy
       - name: Format
         run: cargo fmt --all -- --check
+      - name: Version strings match Cargo.toml
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          minor=${version%.*}
+          if grep -rn 'winds-engine = "' site/index.html | grep -vF "\"$minor\""; then
+            echo "::error::stale winds-engine version reference (Cargo.toml is $version)"
+            exit 1
+          fi
+          grep -q "v$version" site/index.html || { echo "::error::site badge is not v$version"; exit 1; }
       - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
