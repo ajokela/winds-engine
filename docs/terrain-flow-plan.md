@@ -92,7 +92,27 @@ Golden-pattern parity, like everything else in this repo:
 
 ~2–3 weeks to a validated Tier 1. Revisit only with a concrete consumer.
 
-## Explicitly out
+## Status: Tier 1 built (2026-10-26)
+
+The gate opened (moving-batteries: distributed wind monitors down a
+shooting range). The core is in, zero new dependencies:
+
+- `HeightGrid`: metres-grid terrain, `new` + an ASCII `.asc` reader
+  (GeoTIFF/`.hgt` loaders still to come; `.hgt` needs a degree→metre
+  projection step).
+- `TerrainFlowField::adjust`: per-level 2-D horizontal mass-consistent
+  adjustment with the terrain-induced vertical divergence as the forcing
+  (air rising up a slope converges, lee descents diverge), surface wind
+  monitors blended near the ground with influence decaying with height and
+  distance, and a background-clamped domain boundary.
+- Tests pin the honest physics: symmetric-hill speed-up toward the crest,
+  return to free stream far upwind, flat-ground invariances, monitor
+  localisation, determinism, ASCII parsing.
+
+Known v1 limits (all Tier-2: full terrain-following mesh and vertical
+coupling): the adjustment is 2-D per level, monitors are blended into a
+first guess rather than hard observation constraints, and the far field
+relaxes to the background within ~10%.
 
 - **Tier 2** (full terrain-following mesh, Richardson iteration, steep-canyon
   fidelity — WindNinja's default): months; not planned.

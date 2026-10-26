@@ -63,6 +63,11 @@ let report = validate::validate(&profile, &sounding);
   byte-range requests against the AWS mirror's index files — the only
   networked code in the crate.
 
+- `terrain`: a diagnostic mass-consistent terrain wind — a `HeightGrid`
+  (ASCII DEM + raw arrays) plus `TerrainFlowField`, which adjusts a base
+  field to satisfy 2-D horizontal mass conservation over terrain,
+  optionally constrained by surface wind monitors.
+
 Zero dependencies by default (`grib` adds the `grib` crate, `download` adds
 `ureq`); no wall clock or unseeded randomness anywhere — cycle date and
 forecast hour are explicit parameters.

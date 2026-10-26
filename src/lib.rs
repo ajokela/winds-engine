@@ -28,6 +28,7 @@ pub mod field;
 #[cfg(feature = "grib")]
 pub mod grib;
 pub mod sounding;
+pub mod terrain;
 pub mod validate;
 
 pub use field::{ConstantField, ProfileField, ProfileLevel, Wind, WindField};
