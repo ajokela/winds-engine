@@ -33,6 +33,7 @@ pub mod validate;
 
 pub use field::{ConstantField, ProfileField, ProfileLevel, Wind, WindField};
 pub use sounding::{Sounding, SoundingLevel};
+pub use terrain::{local_en_m, monitors_from_geo_csv, HeightGrid, Monitor, TerrainFlowField};
 pub use validate::{LayerError, ValidationReport};
 
 /// Crate-wide error: invalid input with a field name and reason.

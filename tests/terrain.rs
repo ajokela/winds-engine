@@ -73,7 +73,7 @@ fn monitors_bend_the_wind_near_them_and_relax_away() {
     let grid = HeightGrid::new(0.0, 0.0, 100.0, 100.0, 21, 21, vec![0.0; 21 * 21]).unwrap();
     // Background east at 5 m/s; a monitor at (1000, 1000) says FROM 90°
     // (blowing toward −z, a crosswind).
-    let monitors = [(1000.0, 1000.0, 5.0, 90.0)];
+    let monitors = [winds_engine::Monitor::at(1000.0, 1000.0, 5.0, 90.0)];
     let field = TerrainFlowField::adjust(
         grid,
         &east_wind(5.0),
@@ -105,7 +105,7 @@ fn adjustment_is_deterministic() {
     let a = TerrainFlowField::adjust(
         grid.clone(),
         &east_wind(10.0),
-        &[(0.0, 0.0, 12.0, 270.0)],
+        &[winds_engine::Monitor::at(0.0, 0.0, 12.0, 270.0)],
         &[40.0],
         2000.0,
         300.0,
@@ -115,7 +115,7 @@ fn adjustment_is_deterministic() {
     let b = TerrainFlowField::adjust(
         grid,
         &east_wind(10.0),
-        &[(0.0, 0.0, 12.0, 270.0)],
+        &[winds_engine::Monitor::at(0.0, 0.0, 12.0, 270.0)],
         &[40.0],
         2000.0,
         300.0,
@@ -137,6 +137,34 @@ fn ascii_dem_parses_with_row_reversal() {
     // Rows reversed: north row is the file's second line (200,201,202).
     assert_eq!(&grid.heights[0..3], &[200.0, 201.0, 202.0]);
     assert_eq!(&grid.heights[3..6], &[100.0, 101.0, 102.0]);
+}
+
+#[test]
+fn geo_monitors_project_and_rotate() {
+    use winds_engine::{local_en_m, monitors_from_geo_csv, Monitor};
+    // 1° north and 1° east of the reference at 45°N.
+    let (east, north) = local_en_m(46.0, 1.0, 45.0, 0.0);
+    assert!((north - 111_195.0).abs() < 500.0, "north {north}");
+    assert!((east - 78_847.0).abs() < 500.0, "east {east}");
+    // A compass 0° (from north) reading with a north-pointing +x stays 0°.
+    let m = Monitor::from_geo(46.0, 1.0, 5.0, 0.0, 45.0, 0.0, 0.0);
+    assert_eq!(m.direction_from_deg, 0.0);
+    assert!(m.x_m > 0.0 && m.z_m > 0.0);
+    // If +x points east (north_azimuth 90°), a from-north wind is from 270°.
+    let m = Monitor::from_geo(45.0, 0.0, 5.0, 0.0, 45.0, 0.0, 90.0);
+    assert!(
+        (m.direction_from_deg - 270.0).abs() < 1e-9,
+        "{}",
+        m.direction_from_deg
+    );
+    // CSV ingest: comment and header skipped, two readings.
+    let csv = "# range monitors\n# lat,lon,speed_ms,dir_compass_deg\n45.1,0.0,3.0,180.0\n45.2,0.1,4.5,270.0\n";
+    let mons = monitors_from_geo_csv(csv, 45.0, 0.0, 0.0).unwrap();
+    assert_eq!(mons.len(), 2);
+    assert!((mons[0].speed_mps - 3.0).abs() < 1e-12);
+    assert!((mons[1].direction_from_deg - 270.0).abs() < 1e-9);
+    assert!(monitors_from_geo_csv("45.0,0.0,3.0\n", 45.0, 0.0, 0.0).is_err());
+    assert!(monitors_from_geo_csv("nope,0.0,3.0,0.0\n", 45.0, 0.0, 0.0).is_err());
 }
 
 #[test]

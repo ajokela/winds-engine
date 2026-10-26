@@ -11,6 +11,133 @@
 use crate::field::{Wind, WindField};
 use crate::{Error, Result};
 
+/// Earth's mean radius for the local-tangent metre projection.
+const EARTH_RADIUS_M: f64 = 6_371_000.0;
+
+/// One surface wind observation, in the terrain grid's frame (metres).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Monitor {
+    /// Easting (frame x), metres.
+    pub x_m: f64,
+    /// Northing (frame z), metres.
+    pub z_m: f64,
+    /// Wind speed, metres per second.
+    pub speed_mps: f64,
+    /// Meteorological FROM-direction in the frame convention: 0° = from
+    /// +x (a headwind), 90° = from the right (see [`Wind::from_speed_direction`]).
+    pub direction_from_deg: f64,
+}
+
+impl Monitor {
+    /// An observation already in the grid's metre frame.
+    pub fn at(x_m: f64, z_m: f64, speed_mps: f64, direction_from_deg: f64) -> Self {
+        Self {
+            x_m,
+            z_m,
+            speed_mps,
+            direction_from_deg,
+        }
+    }
+
+    /// A geographic reading, projected into local metres and rotated from
+    /// compass degrees into the frame. `ref_lat`/`ref_lon` is the point
+    /// that maps to the frame's origin, and `north_azimuth_deg` is the
+    /// compass direction of the frame's +x axis.
+    pub fn from_geo(
+        lat_deg: f64,
+        lon_deg: f64,
+        speed_mps: f64,
+        dir_compass_from_deg: f64,
+        ref_lat_deg: f64,
+        ref_lon_deg: f64,
+        north_azimuth_deg: f64,
+    ) -> Self {
+        let (x_m, z_m) = local_en_m(lat_deg, lon_deg, ref_lat_deg, ref_lon_deg);
+        Self {
+            x_m,
+            z_m,
+            speed_mps,
+            direction_from_deg: (dir_compass_from_deg - north_azimuth_deg).rem_euclid(360.0),
+        }
+    }
+}
+
+/// Local equirectangular projection: `(east, north)` metres from the
+/// reference point, for the small domains a wind network covers. Not for
+/// continental scales.
+pub fn local_en_m(lat_deg: f64, lon_deg: f64, ref_lat_deg: f64, ref_lon_deg: f64) -> (f64, f64) {
+    let dlat = (lat_deg - ref_lat_deg).to_radians();
+    let dlon = (lon_deg - ref_lon_deg).to_radians();
+    let east = EARTH_RADIUS_M * dlon * ref_lat_deg.to_radians().cos();
+    let north = EARTH_RADIUS_M * dlat;
+    (east, north)
+}
+
+/// Parse a monitor file of one reading per line:
+/// `latitude,longitude,speed_ms,direction_compass_from_deg`, `#` comments
+/// and a header line are skipped. Coordinates are projected via
+/// [`local_en_m`] and directions rotated into the frame.
+pub fn monitors_from_geo_csv(
+    text: &str,
+    ref_lat_deg: f64,
+    ref_lon_deg: f64,
+    north_azimuth_deg: f64,
+) -> Result<Vec<Monitor>> {
+    let mut monitors = Vec::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = line.split(',').collect();
+        if fields.len() < 4 {
+            return Err(Error::invalid(
+                "monitor csv",
+                format!(
+                    "line {}: expected lat,lon,speed_ms,dir_compass_deg",
+                    number + 1
+                ),
+            ));
+        }
+        let num = |token: &str, what: &str| -> Result<f64> {
+            token.trim().parse().map_err(|_| {
+                Error::invalid(
+                    "monitor csv",
+                    format!("line {}: {what} '{token}' is not numeric", number + 1),
+                )
+            })
+        };
+        let (lat, lon) = (num(fields[0], "lat")?, num(fields[1], "lon")?);
+        let speed = num(fields[2], "speed")?;
+        let dir = num(fields[3], "direction")?;
+        if !lat.is_finite()
+            || lat.abs() > 90.0
+            || !lon.is_finite()
+            || !speed.is_finite()
+            || speed < 0.0
+            || !dir.is_finite()
+        {
+            return Err(Error::invalid(
+                "monitor csv",
+                format!(
+                    "line {}: readings must be finite with nonnegative speed",
+                    number + 1
+                ),
+            ));
+        }
+        monitors.push(Monitor::from_geo(
+            lat,
+            lon,
+            speed,
+            dir,
+            ref_lat_deg,
+            ref_lon_deg,
+            north_azimuth_deg,
+        ));
+    }
+    Ok(monitors)
+}
+
 /// Terrain heights on an axis-aligned, uniform grid in metres. Row-major:
 /// `heights[i * ncols + j]` is column `j` (east), row `i` (north). Position
 /// `y` is up; the grid lies in the `x`–`z` plane.
@@ -164,7 +291,7 @@ impl TerrainFlowField {
     pub fn adjust(
         grid: HeightGrid,
         base: &dyn WindField,
-        monitors: &[(f64, f64, f64, f64)],
+        monitors: &[Monitor],
         levels_agl: &[f64],
         obs_length_m: f64,
         surface_decay_m: f64,
@@ -188,11 +315,11 @@ impl TerrainFlowField {
         if obs_length_m <= 0.0 || surface_decay_m <= 0.0 {
             return Err(Error::invalid("terrain", "length scales must be positive"));
         }
-        for &(x, y, speed, dir) in monitors {
-            if !x.is_finite() || !y.is_finite() || !dir.is_finite() {
+        for m in monitors {
+            if !m.x_m.is_finite() || !m.z_m.is_finite() || !m.direction_from_deg.is_finite() {
                 return Err(Error::invalid("monitor", "must be finite"));
             }
-            if !speed.is_finite() || speed < 0.0 {
+            if !m.speed_mps.is_finite() || m.speed_mps < 0.0 {
                 return Err(Error::invalid("monitor", "speed must be nonnegative"));
             }
         }
@@ -216,11 +343,11 @@ impl TerrainFlowField {
                     let height = grid.heights[i * ncols + j] + level;
                     let bg = base.wind(0.0, [x, height, z]);
                     let (mut cx, mut cz, mut wsum) = (0.0, 0.0, 0.0);
-                    for &(mx, mz, speed, dir) in monitors {
-                        let mw = Wind::from_speed_direction(speed, dir);
-                        let bg_m = base.wind(0.0, [mx, grid.height_at(mx, mz), mz]);
-                        let dx = x - mx;
-                        let dz = z - mz;
+                    for m in monitors {
+                        let mw = Wind::from_speed_direction(m.speed_mps, m.direction_from_deg);
+                        let bg_m = base.wind(0.0, [m.x_m, grid.height_at(m.x_m, m.z_m), m.z_m]);
+                        let dx = x - m.x_m;
+                        let dz = z - m.z_m;
                         let weight = (-(dx * dx + dz * dz) / (obs_length_m * obs_length_m)).exp()
                             * (-level / surface_decay_m).exp();
                         cx += weight * (mw.x_mps - bg_m.x_mps);
