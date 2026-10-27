@@ -45,15 +45,17 @@ let report = validate::validate(&profile, &sounding);
   only: sounding heights stay above sea level, and shifting them as well
   would move every wind by the site elevation.
 - `validate`: speed/direction RMSE and per-layer errors vs a sounding.
-- Relationship to ballistics-engine: these types are this crate's own.
-  ballistics-engine's wind fields (unreleased) were adapted from them and
-  differ: `WindField::wind` takes and returns `nalgebra::Vector3<f64>` and
-  there is no `Wind` type, `ConstantField` is a tuple struct over that
-  vector, `LogProfile`/`EkmanProfile` keep their fields private behind
-  getters, and constructors return `WindFieldError`. Moving winds-engine
-  onto them changes this crate's public API (the example above,
-  `validate()`'s signature), so it is a deliberate breaking release, not a
-  drop-in re-export.
+- Relationship to ballistics-engine: there is none, by design. The two
+  crates have no dependency either way — ballistics-engine is the
+  trajectory kernel (gravity, drag, the ICAO atmosphere, the integrator);
+  winds-engine owns the wind (profiles, forecast ingestion, terrain flow).
+  They meet in rockets-engine, which depends on both and samples a
+  winds-engine `WindField` through ballistics-engine's force kernel. The
+  field types are this crate's own because ballistics-engine's wind-field
+  core is not released yet; when it ships (adapted from these, but
+  `WindField::wind` takes and returns `nalgebra::Vector3<f64>`, no `Wind`
+  type, constructors return `WindFieldError`), winds-engine moves onto it
+  in a deliberate breaking release and rockets-engine follows.
 
 - `grib` (feature): decode GRIB2 forecast files (GFS isobaric HGT/UGRD/VGRD)
   into a `ProfileField` at a point — bilinear-interpolated, offline and
