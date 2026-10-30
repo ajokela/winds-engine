@@ -291,6 +291,47 @@ impl HeightGrid {
     ) -> Result<Self> {
         Self::new(origin_x, origin_south_y, dx, dy, ncols, nrows, heights)
     }
+
+    /// Coarsen the grid to roughly `target_dx` metre spacing, averaging each
+    /// covered cell (a cheap supersampling → mean). The origin and extents
+    /// are preserved; `dx`/`dy` become the downsampled spacing. Terrain wind
+    /// needs no more than ~30 m cells, so a 1 m LiDAR DEM should almost
+    /// always be downsized before adjustment.
+    pub fn downsample(&self, target_dx: f64) -> Result<HeightGrid> {
+        if target_dx <= self.dx || target_dx <= 0.0 {
+            return Ok(self.clone());
+        }
+        let step = (target_dx / self.dx).round().max(1.0) as usize;
+        let ncols = (self.ncols / step).max(2);
+        let nrows = (self.nrows / step).max(2);
+        let mut heights = Vec::with_capacity(ncols * nrows);
+        for r in 0..nrows {
+            for c in 0..ncols {
+                let mut sum = 0.0;
+                let mut n = 0usize;
+                for ii in 0..step {
+                    for jj in 0..step {
+                        let r0 = r * step + ii;
+                        let c0 = c * step + jj;
+                        if r0 < self.nrows && c0 < self.ncols {
+                            sum += self.heights[r0 * self.ncols + c0];
+                            n += 1;
+                        }
+                    }
+                }
+                heights.push(sum / n as f64);
+            }
+        }
+        HeightGrid::new(
+            self.origin_x,
+            self.origin_y,
+            self.dx * step as f64,
+            self.dy * step as f64,
+            ncols,
+            nrows,
+            heights,
+        )
+    }
 }
 
 fn parse_asc_num(token: Option<&str>) -> Option<f64> {
