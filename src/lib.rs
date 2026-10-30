@@ -30,7 +30,7 @@ pub use ballistics_engine::wind::{
 };
 pub use sounding::{Sounding, SoundingLevel};
 #[cfg(feature = "tiff")]
-pub use terrain::geotiff_grid;
+pub use terrain::{geotiff_grid, geotransform, GeoTransform};
 pub use terrain::{
     hgt_grid, local_en_m, monitors_from_geo_csv, HeightGrid, Monitor, SrtmResolution,
     TerrainFlowField,

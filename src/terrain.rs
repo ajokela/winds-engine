@@ -361,11 +361,112 @@ pub fn hgt_grid(
     )
 }
 
-/// Load a GeoTIFF DEM into a [`HeightGrid`]. Uses the lightweight `tiff`
-/// crate behind a `tiff` feature (off by default, keeping the core
-/// zero-dependency); strips are decoded into metres directly, so a
-/// projected (metre) single-band DEM works as-is, while a geographic
-/// (degree) grid needs a proj step the caller supplies.
+/// The georeferencing parsed from a GeoTIFF's model tags.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GeoTransform {
+    /// Easting/northing (model) coordinate of the north-west pixel corner.
+    pub origin_x: f64,
+    pub origin_y: f64,
+    /// Pixel size in x (east-west).
+    pub pixel_scale_x: f64,
+    /// Pixel size in y (north-south, positive after north-up reordering).
+    pub pixel_scale_y: f64,
+}
+
+/// Extract the geotransform from a linear (non-rotated) GeoTIFF:
+/// `ModelTiepointTag` (I,J,K → X,Y,Z) and `ModelPixelScaleTag` (ScaleX,Y,Z).
+/// `ModelTransformationTag` (a full 16-term affine) is accepted only when it
+/// is axis-aligned (off-diagonal terms zero); rotated rasters are rejected
+/// because [`HeightGrid`] is axis-aligned.
+#[cfg(feature = "tiff")]
+pub fn geotransform<R: std::io::Read + std::io::Seek>(
+    decoder: &mut tiff::decoder::Decoder<R>,
+) -> Result<GeoTransform> {
+    // A model transform (4x4 affine, 16 doubles) overrides pixel-scale+ tiepoint.
+    if let Ok(transform) = decoder.get_tag_f64_vec(tiff::tags::Tag::ModelTransformationTag) {
+        if transform.len() != 16 {
+            return Err(Error::invalid(
+                "geotiff",
+                "model transform must be 16 values",
+            ));
+        }
+        let is_axis_aligned = [
+            transform[1],
+            transform[2],
+            transform[4],
+            transform[6],
+            transform[8],
+            transform[9],
+        ]
+        .iter()
+        .all(|v| v.abs() < 1e-12);
+        if !is_axis_aligned {
+            return Err(Error::invalid(
+                "geotiff",
+                "rotated model transform is not supported by a HeightGrid",
+            ));
+        }
+        let (sx, sy) = (transform[0], transform[5]);
+        // Raster (0,0) is the top-left pixel; its corner is at (X, Y) minus
+        // half a pixel when PixelIsArea, i.e. X0 = transform[3], Y0 = transform[7]
+        // for a pixel-corner tie (the transform maps pixel (0,0) center to X0,Y0).
+        // GeoTIFF's model transform maps raster *point* (0,0) to (X0, Y0); for a
+        // north-up raster sy is negative, so the NW corner (top-left) is
+        // (X0, Y0) and the NS spacing is -sy.
+        return Ok(GeoTransform {
+            origin_x: transform[3],
+            origin_y: transform[7],
+            pixel_scale_x: sx,
+            pixel_scale_y: -sy,
+        });
+    }
+
+    let tiepoint = decoder
+        .get_tag_f64_vec(tiff::tags::Tag::ModelTiepointTag)
+        .map_err(|_| Error::invalid("geotiff", "missing ModelTiepointTag"))?;
+    let scale = decoder
+        .get_tag_f64_vec(tiff::tags::Tag::ModelPixelScaleTag)
+        .map_err(|_| Error::invalid("geotiff", "missing ModelPixelScaleTag"))?;
+    if scale.len() != 3 {
+        return Err(Error::invalid("geotiff", "pixel scale must be 3 values"));
+    }
+    let (sx, sy) = (scale[0], scale[1]);
+    if sx <= 0.0 {
+        return Err(Error::invalid("geotiff", "pixel scale x must be positive"));
+    }
+    if sy.abs() <= 0.0 {
+        return Err(Error::invalid("geotiff", "pixel scale y must be nonzero"));
+    }
+    // ModelTiepoint maps raster (I, J, 0) to model (X, Y, Z). Usually one
+    // tiepoint at raster (0,0,0) = the first (top-left) pixel *center* to
+    // (X, Y, Z). The pixel *corner* (our origin) is half a pixel up-left.
+    // Raster y runs downward, so for a north-up raster sy < 0 and the NW
+    // corner is at (X, Y) while going +north is -sy per raster row.
+    let tie_raster_x = tiepoint.first().copied().unwrap_or(0.0);
+    let tie_raster_y = tiepoint.get(1).copied().unwrap_or(0.0);
+    let tie_model_x = tiepoint
+        .get(3)
+        .copied()
+        .ok_or_else(|| Error::invalid("geotiff", "tiepoint must have 6 values (I J K X Y Z)"))?;
+    let tie_model_y = *tiepoint
+        .get(4)
+        .ok_or_else(|| Error::invalid("geotiff", "tiepoint must have 6 values (I J K X Y Z)"))?;
+    let origin_x = tie_model_x - tie_raster_x * sx;
+    let origin_y = tie_model_y + tie_raster_y * sy; // sy<0: + = north edge
+    Ok(GeoTransform {
+        origin_x,
+        origin_y,
+        pixel_scale_x: sx,
+        pixel_scale_y: -sy, // positive north spacing
+    })
+}
+
+/// Load a GeoTIFF DEM into a georeferenced [`HeightGrid`]. Uses the
+/// lightweight `tiff` crate behind a `tiff` feature (off by default, keeping
+/// the core zero-dependency). The geotransform is read from the tags, so a
+/// projected (metre) single-band DEM arrives with real origin and spacing;
+/// a geographic (degree) grid is read as-is (degree units) with no proj — the
+/// caller decides the map projection.
 #[cfg(feature = "tiff")]
 pub fn geotiff_grid(data: &[u8]) -> Result<HeightGrid> {
     let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(data))
@@ -401,15 +502,28 @@ pub fn geotiff_grid(data: &[u8]) -> Result<HeightGrid> {
             "decoded size does not match header",
         ));
     }
-    // Top-left origin, rows north→south; reverse into north-up rows.
+    // Raster rows are north→south (top-left origin); reverse into north-up.
     let mut north_up = Vec::with_capacity(values.len());
     for row in values.chunks_exact(width).rev() {
         north_up.extend_from_slice(row);
     }
-    // No geotransform extraction: origin is unknown from pixels alone, so
-    // the grid is indexed from (0, 0) with unit spacing; callers with a
-    // geotransform should translate/scale into `HeightGrid::new` themselves.
-    HeightGrid::new(0.0, 0.0, 1.0, 1.0, width, height, north_up)
+    // Read the geotransform; fall back to unit spacing only when a GeoTIFF
+    // lacks georeferencing tags (a bare TIFF, not a georeferenced GeoTIFF).
+    let geot = geotransform(&mut decoder).unwrap_or(GeoTransform {
+        origin_x: 0.0,
+        origin_y: 0.0,
+        pixel_scale_x: 1.0,
+        pixel_scale_y: 1.0,
+    });
+    HeightGrid::new(
+        geot.origin_x,
+        geot.origin_y,
+        geot.pixel_scale_x,
+        geot.pixel_scale_y,
+        width,
+        height,
+        north_up,
+    )
 }
 
 /// A diagnostic terrain-adjusted wind field.

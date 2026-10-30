@@ -99,7 +99,10 @@ shooting range). The core is in, zero new dependencies:
 
 - `HeightGrid`: metres-grid terrain, `new` + an ASCII `.asc` reader +
   SRTM `.hgt` loading (`hgt_grid`, projected into local metres) +
-  GeoTIFF decoding behind the `tiff` feature (`geotiff_grid`).
+  GeoTIFF decoding behind the `tiff` feature — `geotiff_grid` now reads
+  the georeferencing (`geotransform`/`GeoTransform` from the pixel-scale
+  and tiepoint tags, with axis-aligned model-transform support) so a
+  georeferenced DEM arrives with its real origin and spacing.
 - `TerrainFlowField::adjust`: per-level 2-D horizontal mass-consistent
   adjustment with the terrain-induced vertical divergence as the forcing
   (air rising up a slope converges, lee descents diverge), surface wind

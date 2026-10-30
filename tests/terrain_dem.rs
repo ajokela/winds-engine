@@ -100,6 +100,44 @@ fn geotiff_decodes_a_small_raster() {
     );
 }
 
+#[cfg(feature = "tiff")]
+#[test]
+fn geotiff_reads_the_geotransform() {
+    use std::io::Cursor;
+    use tiff::encoder::{colortype, TiffEncoder};
+
+    let mut buffer = Cursor::new(Vec::new());
+    {
+        let mut tiff = TiffEncoder::new(&mut buffer).unwrap();
+        let mut image = tiff.new_image::<colortype::Gray16>(3, 2).unwrap();
+        // Tie raster point (0,0) to model (500000, 4200000), 30 m pixels,
+        // north-up (negative pixel-scale y).
+        let tiepoint: &[f64] = &[0.0, 0.0, 0.0, 500000.0, 4200000.0, 0.0];
+        let scale: &[f64] = &[30.0, -30.0, 0.0];
+        image
+            .encoder()
+            .write_tag(tiff::tags::Tag::ModelTiepointTag, tiepoint)
+            .unwrap();
+        image
+            .encoder()
+            .write_tag(tiff::tags::Tag::ModelPixelScaleTag, scale)
+            .unwrap();
+        let data = vec![100u16, 200, 300, 400, 500, 600]; // 3 cols x 2 rows, row-major
+        image.write_strip(&data).unwrap();
+        image.finish().unwrap();
+    }
+    let grid = winds_engine::geotiff_grid(&buffer.into_inner()).unwrap();
+    assert_eq!((grid.ncols, grid.nrows), (3, 2));
+    assert!((grid.origin_x - 500000.0).abs() < 1e-6, "{}", grid.origin_x);
+    assert!(
+        (grid.origin_y - 4200000.0).abs() < 1e-6,
+        "{}",
+        grid.origin_y
+    );
+    assert!((grid.dx - 30.0).abs() < 1e-9, "dx {}", grid.dx);
+    assert!((grid.dy - 30.0).abs() < 1e-9, "dy {}", grid.dy);
+}
+
 #[test]
 fn hgt_projects_into_local_metres() {
     // Recentring a reading: the same tile but reference at the tile's
