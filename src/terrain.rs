@@ -337,8 +337,8 @@ pub fn hgt_grid(
         ));
     }
     let mut heights = Vec::with_capacity(samples * samples);
-    for chunk in data.chunks_exact(2) {
-        heights.push(f64::from(i16::from_be_bytes([chunk[0], chunk[1]])));
+    for chunk in data.as_chunks::<2>().0 {
+        heights.push(f64::from(i16::from_be_bytes(*chunk)));
     }
     // SRTM is also north→south; file sample 0 is the north edge = our row 0,
     // so no reversal (same "English reading order" row-major as ASCII).
