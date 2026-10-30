@@ -31,5 +31,7 @@ jobs:
         run: cargo test --features grib
       - name: Test (download)
         run: cargo test --features download
+      - name: Test (tiff)
+        run: cargo test --features tiff
       - name: Clippy (all features)
         run: cargo clippy --all-targets --all-features -- -D warnings

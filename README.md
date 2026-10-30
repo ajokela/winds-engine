@@ -56,10 +56,12 @@ let report = validate::validate(&profile, &sounding);
   byte-range requests against the AWS mirror's index files — the only
   networked code in the crate.
 
-- `terrain`: a diagnostic mass-consistent terrain wind — a `HeightGrid`
-  (ASCII DEM + raw arrays) plus `TerrainFlowField`, which adjusts a base
+- `terrain`: a diagnostic mass-consistent terrain wind. `HeightGrid` loads
+  terrain from raw arrays, ASCII `.asc` rasters, or SRTM `.hgt` tiles
+  (`hgt_grid`, projected into local metres); behind the `tiff` feature,
+  `geotiff_grid` decodes a GeoTIFF DEM. `TerrainFlowField` adjusts a base
   field to satisfy 2-D horizontal mass conservation over terrain,
-  constrained by surface wind `Monitor`s (one per reading; `from_geo` and
+  constrained by surface wind `Monitor`s (`from_geo` and
   `monitors_from_geo_csv` project GPS lat/lon and compass directions into
   the field's frame).
 

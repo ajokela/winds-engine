@@ -29,7 +29,12 @@ pub use ballistics_engine::wind::{
     WindFieldError, WindFieldParam, WindFieldRule,
 };
 pub use sounding::{Sounding, SoundingLevel};
-pub use terrain::{local_en_m, monitors_from_geo_csv, HeightGrid, Monitor, TerrainFlowField};
+#[cfg(feature = "tiff")]
+pub use terrain::geotiff_grid;
+pub use terrain::{
+    hgt_grid, local_en_m, monitors_from_geo_csv, HeightGrid, Monitor, SrtmResolution,
+    TerrainFlowField,
+};
 pub use validate::{LayerError, ValidationReport};
 
 /// Crate-wide error: invalid input with a field name and reason.

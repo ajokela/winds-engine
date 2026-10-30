@@ -262,17 +262,154 @@ impl HeightGrid {
                 "height count does not match header",
             ));
         }
-        // Rows are north→south; our rows run +z (north), so reverse them.
-        let mut north_up = Vec::with_capacity(heights.len());
-        for row in heights.chunks_exact(ncols).rev() {
-            north_up.extend_from_slice(row);
-        }
-        Self::new(xll, yll, cellsize, cellsize, ncols, nrows, north_up)
+        // ESRI ASCII is "English reading order": row 1 is the north (top)
+        // edge, which is already our row 0 — no reversal. Note the corner
+        // (xllcorner/yllcorner) is the *lower-left* corner, not the upper
+        // left, so the grid origin is at y = yll, the south edge. `new`
+        // treats `origin` as the first (row 0 = north) sample's corner; to
+        // stay consistent with that contract we keep heights in file order
+        // (north first) and set the northing origin to the north edge.
+        let north_y = yll + cellsize * nrows as f64;
+        Self::new(xll, north_y, cellsize, cellsize, ncols, nrows, heights)
+    }
+
+    /// A grid from raw metres data already in north-up row-major order
+    /// (row 0 = north), with the origin at the north-west sample corner.
+    pub fn from_north_up(
+        origin_x: f64,
+        origin_north_y: f64,
+        dx: f64,
+        dy: f64,
+        ncols: usize,
+        nrows: usize,
+        heights: Vec<f64>,
+    ) -> Result<Self> {
+        Self::new(origin_x, origin_north_y, dx, dy, ncols, nrows, heights)
     }
 }
 
 fn parse_asc_num(token: Option<&str>) -> Option<f64> {
     token.and_then(|s| s.parse().ok())
+}
+
+/// A 1°×1° SRTM tile: 1201² samples for SRTM-3 (3 arc-sec ≈ 90 m), 3601²
+/// for SRTM-1 (1 arc-sec ≈ 30 m). `.hgt` files are 16-bit big-endian
+/// signed metres, recorded north→south (top row is the northern edge),
+/// west→east, sample values at the tile's corners (not centres).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SrtmResolution {
+    /// 3601 samples per side (~30 m), SRTM-1.
+    OneArcSecond,
+    /// 1201 samples per side (~90 m), SRTM-3.
+    ThreeArcSeconds,
+}
+
+impl SrtmResolution {
+    /// Samples per tile side: 3601 (SRTM-1) or 1201 (SRTM-3).
+    pub fn samples(self) -> usize {
+        match self {
+            Self::OneArcSecond => 3601,
+            Self::ThreeArcSeconds => 1201,
+        }
+    }
+}
+
+/// Load an SRTM `.hgt` tile into a [`HeightGrid`] on a local equirectangular
+/// projection (metres), with `(north_lat, west_lon)` as the tile's corner
+/// and the given point mapping to the frame origin.
+///
+/// The tile's own north-west corner is the natural reference, but a caller
+/// with a launch site in mind can recentre with `ref_lat`/`ref_lon`.
+pub fn hgt_grid(
+    data: &[u8],
+    resolution: SrtmResolution,
+    north_lat: f64,
+    west_lon: f64,
+    ref_lat: f64,
+    ref_lon: f64,
+) -> Result<HeightGrid> {
+    let samples = resolution.samples();
+    let expected = samples * samples * 2;
+    if data.len() != expected {
+        return Err(Error::invalid(
+            "hgt",
+            format!("expected {expected} bytes, got {}", data.len()),
+        ));
+    }
+    let mut heights = Vec::with_capacity(samples * samples);
+    for chunk in data.chunks_exact(2) {
+        heights.push(f64::from(i16::from_be_bytes([chunk[0], chunk[1]])));
+    }
+    // SRTM is also north→south; file sample 0 is the north edge = our row 0,
+    // so no reversal (same "English reading order" row-major as ASCII).
+    // Project the tile corners and the reference into local metres. The
+    // grid is north-up (row 0 = north, +z north), origin at the NW corner,
+    // so dx is east spacing and dy is the (positive) north spacing.
+    let nw = local_en_m(north_lat, west_lon, north_lat, west_lon); // (0, 0)
+    let se = local_en_m(north_lat - 1.0, west_lon + 1.0, north_lat, west_lon);
+    let dx = (se.0 - nw.0) / (samples - 1) as f64;
+    let north_spacing = (nw.1 - se.1) / (samples - 1) as f64;
+    let (ref_x, ref_z) = local_en_m(ref_lat, ref_lon, north_lat, west_lon);
+    HeightGrid::new(
+        nw.0 - ref_x,
+        nw.1 - ref_z,
+        dx,
+        north_spacing,
+        samples,
+        samples,
+        heights,
+    )
+}
+
+/// Load a GeoTIFF DEM into a [`HeightGrid`]. Uses the lightweight `tiff`
+/// crate behind a `tiff` feature (off by default, keeping the core
+/// zero-dependency); strips are decoded into metres directly, so a
+/// projected (metre) single-band DEM works as-is, while a geographic
+/// (degree) grid needs a proj step the caller supplies.
+#[cfg(feature = "tiff")]
+pub fn geotiff_grid(data: &[u8]) -> Result<HeightGrid> {
+    let mut decoder = tiff::decoder::Decoder::new(std::io::Cursor::new(data))
+        .map_err(|e| Error::invalid("geotiff", format!("cannot open: {e}")))?;
+    let (width, height) = decoder
+        .dimensions()
+        .map_err(|e| Error::invalid("geotiff", format!("cannot read dimensions: {e}")))?;
+    let (width, height) = (width as usize, height as usize);
+    let values = match decoder
+        .read_image()
+        .map_err(|e| Error::invalid("geotiff", format!("cannot decode: {e}")))?
+    {
+        tiff::decoder::DecodingResult::F32(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::F64(data) => data,
+        tiff::decoder::DecodingResult::U8(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::U16(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::U32(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::I8(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::I16(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::I32(data) => data.into_iter().map(f64::from).collect(),
+        tiff::decoder::DecodingResult::U64(data) => data.into_iter().map(|v| v as f64).collect(),
+        tiff::decoder::DecodingResult::I64(data) => data.into_iter().map(|v| v as f64).collect(),
+        _ => {
+            return Err(Error::invalid(
+                "geotiff",
+                "unsupported sample format (expected integer or float samples)",
+            ))
+        }
+    };
+    if values.len() != width * height {
+        return Err(Error::invalid(
+            "geotiff",
+            "decoded size does not match header",
+        ));
+    }
+    // Top-left origin, rows north→south; reverse into north-up rows.
+    let mut north_up = Vec::with_capacity(values.len());
+    for row in values.chunks_exact(width).rev() {
+        north_up.extend_from_slice(row);
+    }
+    // No geotransform extraction: origin is unknown from pixels alone, so
+    // the grid is indexed from (0, 0) with unit spacing; callers with a
+    // geotransform should translate/scale into `HeightGrid::new` themselves.
+    HeightGrid::new(0.0, 0.0, 1.0, 1.0, width, height, north_up)
 }
 
 /// A diagnostic terrain-adjusted wind field.

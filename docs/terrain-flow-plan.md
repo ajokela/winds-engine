@@ -97,9 +97,9 @@ Golden-pattern parity, like everything else in this repo:
 The gate opened (moving-batteries: distributed wind monitors down a
 shooting range). The core is in, zero new dependencies:
 
-- `HeightGrid`: metres-grid terrain, `new` + an ASCII `.asc` reader
-  (GeoTIFF/`.hgt` loaders still to come; `.hgt` needs a degree→metre
-  projection step).
+- `HeightGrid`: metres-grid terrain, `new` + an ASCII `.asc` reader +
+  SRTM `.hgt` loading (`hgt_grid`, projected into local metres) +
+  GeoTIFF decoding behind the `tiff` feature (`geotiff_grid`).
 - `TerrainFlowField::adjust`: per-level 2-D horizontal mass-consistent
   adjustment with the terrain-induced vertical divergence as the forcing
   (air rising up a slope converges, lee descents diverge), surface wind
