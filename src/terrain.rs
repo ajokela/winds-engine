@@ -145,14 +145,18 @@ pub fn monitors_from_geo_csv(
     Ok(monitors)
 }
 
-/// Terrain heights on an axis-aligned, uniform grid in metres. Row-major:
-/// `heights[i * ncols + j]` is column `j` (east), row `i` (north). Position
-/// `y` is up; the grid lies in the `x`–`z` plane.
+/// Terrain heights on an axis-aligned, uniform grid in metres. Row-major,
+/// **south-to-north**: `heights[i * ncols + j]` is column `j` (east) of row
+/// `i`, where row 0 is the southernmost row and `i` increases northward,
+/// matching the frame's `+z = north` convention shared by monitors and
+/// [`local_en_m`]. `origin_y` is the south edge; sampling `height_at` moves
+/// north as `z` increases. Position `y` is up; the grid lies in the `x`–`z`
+/// plane.
 #[derive(Debug, Clone)]
 pub struct HeightGrid {
-    /// Frame-x of the first column centre.
+    /// Frame-x of the western (first) column.
     pub origin_x: f64,
-    /// Frame-z of the first row centre.
+    /// Frame-z of the southern (first) row.
     pub origin_y: f64,
     /// Column spacing, metres.
     pub dx: f64,
@@ -160,9 +164,9 @@ pub struct HeightGrid {
     pub dy: f64,
     /// Number of columns (east).
     pub ncols: usize,
-    /// Number of rows (north).
+    /// Number of rows (south→north).
     pub nrows: usize,
-    /// Row-major height samples, `ncols * nrows`.
+    /// Row-major height samples, `ncols * nrows`, south→north.
     pub heights: Vec<f64>,
 }
 
@@ -219,14 +223,16 @@ impl HeightGrid {
 
     /// A grid from an ASCII ESRI `.asc` raster (projected, metres): header
     /// `ncols/nrows/xllcorner/yllcorner/cellsize`, then row-major heights
-    /// (north-to-south, west-to-east).
+    /// (north-to-south, west-to-east, i.e. "English reading order": the first
+    /// row is the north edge). Rows are reversed into the grid's
+    /// south-to-north storage so `+z` points north.
     pub fn from_ascii(text: &str) -> Result<Self> {
         let mut ncols = None;
         let mut nrows = None;
         let mut xll = None;
         let mut yll = None;
         let mut cellsize = None;
-        let mut heights = Vec::new();
+        let mut file_rows = Vec::new();
         for line in text.lines() {
             let line = line.trim();
             if line.is_empty() {
@@ -243,7 +249,7 @@ impl HeightGrid {
                 _ => {
                     for token in line.split_whitespace() {
                         if let Ok(v) = token.parse::<f64>() {
-                            heights.push(v);
+                            file_rows.push(v);
                         }
                     }
                 }
@@ -256,40 +262,116 @@ impl HeightGrid {
             xll.ok_or_else(|| Error::invalid("ascii dem", "missing xllcorner"))?,
             yll.ok_or_else(|| Error::invalid("ascii dem", "missing yllcorner"))?,
         );
-        if heights.len() != ncols * nrows {
+        if file_rows.len() != ncols * nrows {
             return Err(Error::invalid(
                 "ascii dem",
                 "height count does not match header",
             ));
         }
-        // ESRI ASCII is "English reading order": row 1 is the north (top)
-        // edge, which is already our row 0 — no reversal. Note the corner
-        // (xllcorner/yllcorner) is the *lower-left* corner, not the upper
-        // left, so the grid origin is at y = yll, the south edge. `new`
-        // treats `origin` as the first (row 0 = north) sample's corner; to
-        // stay consistent with that contract we keep heights in file order
-        // (north first) and set the northing origin to the north edge.
-        let north_y = yll + cellsize * nrows as f64;
-        Self::new(xll, north_y, cellsize, cellsize, ncols, nrows, heights)
+        // File is north-first; reverse to south-first. xll/yll is the
+        // lower-left (south-west) corner, matching our origin_y = south edge.
+        let mut heights = Vec::with_capacity(file_rows.len());
+        for row in file_rows.chunks_exact(ncols).rev() {
+            heights.extend_from_slice(row);
+        }
+        Self::new(xll, yll, cellsize, cellsize, ncols, nrows, heights)
     }
 
-    /// A grid from raw metres data already in north-up row-major order
-    /// (row 0 = north), with the origin at the north-west sample corner.
-    pub fn from_north_up(
+    /// A grid from raw metres data already in the grid's south-to-north
+    /// row-major order (row 0 = south), with the origin at the south-west
+    /// sample corner.
+    pub fn from_south_up(
         origin_x: f64,
-        origin_north_y: f64,
+        origin_south_y: f64,
         dx: f64,
         dy: f64,
         ncols: usize,
         nrows: usize,
         heights: Vec<f64>,
     ) -> Result<Self> {
-        Self::new(origin_x, origin_north_y, dx, dy, ncols, nrows, heights)
+        Self::new(origin_x, origin_south_y, dx, dy, ncols, nrows, heights)
     }
 }
 
 fn parse_asc_num(token: Option<&str>) -> Option<f64> {
     token.and_then(|s| s.parse().ok())
+}
+
+/// Parse the shared `flt`/`.asc` six-key header lines into
+/// `(ncols, nrows, xll, yll, cellsize, nodata, msb_first)`. `text` may be an
+/// `.asc` header (no `BYTEORDER`) or a `.hdr` sidecar (with `BYTEORDER`).
+type Header = (usize, usize, f64, f64, f64, Option<f64>, bool);
+
+fn parse_header(text: &str) -> Result<Header> {
+    let mut ncols = None;
+    let mut nrows = None;
+    let mut xll = None;
+    let mut yll = None;
+    let mut cellsize = None;
+    let mut nodata = None;
+    let mut msb = true;
+    for line in text.lines() {
+        let mut parts = line.split_whitespace();
+        let key = parts.next().unwrap_or("").to_ascii_lowercase();
+        let val = parts.next();
+        match key.as_str() {
+            "ncols" => ncols = val.and_then(|s| s.parse().ok()),
+            "nrows" => nrows = val.and_then(|s| s.parse().ok()),
+            "xllcorner" | "xllcenter" => xll = val.and_then(|s| s.parse().ok()),
+            "yllcorner" | "yllcenter" => yll = val.and_then(|s| s.parse().ok()),
+            "cellsize" => cellsize = val.and_then(|s| s.parse().ok()),
+            "nodata_value" | "nodata" => nodata = val.and_then(|s| s.parse().ok()),
+            "byteorder" => msb = val.is_none_or(|s| s.eq_ignore_ascii_case("msbfirst")),
+            _ => {}
+        }
+    }
+    let ncols = ncols.ok_or_else(|| Error::invalid("header", "missing ncols"))?;
+    let nrows = nrows.ok_or_else(|| Error::invalid("header", "missing nrows"))?;
+    let cellsize = cellsize.ok_or_else(|| Error::invalid("header", "missing cellsize"))?;
+    let xll = xll.ok_or_else(|| Error::invalid("header", "missing xllcorner"))?;
+    let yll = yll.ok_or_else(|| Error::invalid("header", "missing yllcorner"))?;
+    Ok((ncols, nrows, xll, yll, cellsize, nodata, msb))
+}
+
+/// Load an ESRI binary floating-point raster (`.flt` raw float32 + `.hdr`
+/// sidecar header). Both the row order (north-first, "English reading
+/// order") and the lower-left-corner origin are handled the same way as
+/// [`HeightGrid::from_ascii`].
+pub fn from_flt(flt: &[u8], hdr_text: &str) -> Result<HeightGrid> {
+    let (ncols, nrows, xll, yll, cellsize, nodata, msb) = parse_header(hdr_text)?;
+    let expected = ncols * nrows * 4;
+    if flt.len() != expected {
+        return Err(Error::invalid(
+            "flt",
+            format!("expected {expected} bytes, got {}", flt.len()),
+        ));
+    }
+    let mut heights = Vec::with_capacity(ncols * nrows);
+    for chunk in flt.as_chunks::<4>().0 {
+        let value = if msb {
+            f32::from_be_bytes(*chunk)
+        } else {
+            f32::from_le_bytes(*chunk)
+        };
+        heights.push(f64::from(value));
+    }
+    // A mass-consistent terrain field needs a dense height grid, so NODATA
+    // cells are an error, not silent holes.
+    if let Some(nodata) = nodata {
+        if heights.contains(&nodata) {
+            return Err(Error::invalid(
+                "flt",
+                "raster contains NODATA cells; terrain wind needs a dense DEM",
+            ));
+        }
+    }
+    // File rows are north-first; reverse to the grid's south-first storage.
+    // yllcorner is the lower-left (south-west) corner = our origin.
+    let mut south_first = Vec::with_capacity(heights.len());
+    for row in heights.chunks_exact(ncols).rev() {
+        south_first.extend_from_slice(row);
+    }
+    HeightGrid::new(xll, yll, cellsize, cellsize, ncols, nrows, south_first)
 }
 
 /// A 1°×1° SRTM tile: 1201² samples for SRTM-3 (3 arc-sec ≈ 90 m), 3601²
@@ -336,25 +418,27 @@ pub fn hgt_grid(
             format!("expected {expected} bytes, got {}", data.len()),
         ));
     }
-    let mut heights = Vec::with_capacity(samples * samples);
+    // File is north→south; reverse to the grid's south-first storage.
+    let mut file_rows = Vec::with_capacity(samples * samples);
     for chunk in data.as_chunks::<2>().0 {
-        heights.push(f64::from(i16::from_be_bytes(*chunk)));
+        file_rows.push(f64::from(i16::from_be_bytes(*chunk)));
     }
-    // SRTM is also north→south; file sample 0 is the north edge = our row 0,
-    // so no reversal (same "English reading order" row-major as ASCII).
-    // Project the tile corners and the reference into local metres. The
-    // grid is north-up (row 0 = north, +z north), origin at the NW corner,
-    // so dx is east spacing and dy is the (positive) north spacing.
-    let nw = local_en_m(north_lat, west_lon, north_lat, west_lon); // (0, 0)
-    let se = local_en_m(north_lat - 1.0, west_lon + 1.0, north_lat, west_lon);
-    let dx = (se.0 - nw.0) / (samples - 1) as f64;
-    let north_spacing = (nw.1 - se.1) / (samples - 1) as f64;
+    let mut heights = Vec::with_capacity(file_rows.len());
+    for row in file_rows.chunks_exact(samples).rev() {
+        heights.extend_from_slice(row);
+    }
+    // Project the corners and the reference into local metres. Origin is the
+    // south-west corner (matches `origin_y` = south edge, `+z` north).
+    let sw = local_en_m(north_lat - 1.0, west_lon, north_lat, west_lon);
+    let ne = local_en_m(north_lat, west_lon + 1.0, north_lat, west_lon);
+    let dx = (ne.0 - sw.0) / (samples - 1) as f64;
+    let dy = (ne.1 - sw.1) / (samples - 1) as f64;
     let (ref_x, ref_z) = local_en_m(ref_lat, ref_lon, north_lat, west_lon);
     HeightGrid::new(
-        nw.0 - ref_x,
-        nw.1 - ref_z,
+        sw.0 - ref_x,
+        sw.1 - ref_z,
         dx,
-        north_spacing,
+        dy,
         samples,
         samples,
         heights,
@@ -364,12 +448,14 @@ pub fn hgt_grid(
 /// The georeferencing parsed from a GeoTIFF's model tags.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GeoTransform {
-    /// Easting/northing (model) coordinate of the north-west pixel corner.
+    /// Easting (model) coordinate of the west edge.
     pub origin_x: f64,
+    /// Northing (model) coordinate of the **north** (top) edge. `geotiff_grid`,
+    /// which knows the raster height, shifts this to the south edge.
     pub origin_y: f64,
     /// Pixel size in x (east-west).
     pub pixel_scale_x: f64,
-    /// Pixel size in y (north-south, positive after north-up reordering).
+    /// Pixel size in y (north-south magnitude, positive).
     pub pixel_scale_y: f64,
 }
 
@@ -437,13 +523,13 @@ pub fn geotransform<R: std::io::Read + std::io::Seek>(
     if sy.abs() <= 0.0 {
         return Err(Error::invalid("geotiff", "pixel scale y must be nonzero"));
     }
-    // ModelTiepoint maps raster (I, J, 0) to model (X, Y, Z). Usually one
-    // tiepoint at raster (0,0,0) = the first (top-left) pixel *center* to
-    // (X, Y, Z). The pixel *corner* (our origin) is half a pixel up-left.
-    // Raster y runs downward, so for a north-up raster sy < 0 and the NW
-    // corner is at (X, Y) while going +north is -sy per raster row.
-    let tie_raster_x = tiepoint.first().copied().unwrap_or(0.0);
-    let tie_raster_y = tiepoint.get(1).copied().unwrap_or(0.0);
+    // ModelTiepoint maps raster (I, J, 0) to model (X, Y, Z). The conventional
+    // single tiepoint is at raster (0, 0) = the top-left pixel centre, so its
+    // model X/Y is the top-left corner. Pixel scale y is signed by the CRS
+    // (negative in north-up projected CRSs, positive in y-up CRSs like Web
+    // Mercator); the spacing magnitude is |sy|. `origin_y` here is the
+    // **top** (north) edge; `geotiff_grid` shifts it to the south edge using
+    // the raster height.
     let tie_model_x = tiepoint
         .get(3)
         .copied()
@@ -451,13 +537,11 @@ pub fn geotransform<R: std::io::Read + std::io::Seek>(
     let tie_model_y = *tiepoint
         .get(4)
         .ok_or_else(|| Error::invalid("geotiff", "tiepoint must have 6 values (I J K X Y Z)"))?;
-    let origin_x = tie_model_x - tie_raster_x * sx;
-    let origin_y = tie_model_y + tie_raster_y * sy; // sy<0: + = north edge
     Ok(GeoTransform {
-        origin_x,
-        origin_y,
+        origin_x: tie_model_x,
+        origin_y: tie_model_y,
         pixel_scale_x: sx,
-        pixel_scale_y: -sy, // positive north spacing
+        pixel_scale_y: sy.abs(),
     })
 }
 
@@ -502,28 +586,32 @@ pub fn geotiff_grid(data: &[u8]) -> Result<HeightGrid> {
             "decoded size does not match header",
         ));
     }
-    // Raster rows are north→south (top-left origin); reverse into north-up.
-    let mut north_up = Vec::with_capacity(values.len());
+    // Raster rows are north→south (top-left origin); reverse into the grid's
+    // south-first storage.
+    let mut south_first = Vec::with_capacity(values.len());
     for row in values.chunks_exact(width).rev() {
-        north_up.extend_from_slice(row);
+        south_first.extend_from_slice(row);
     }
-    // Read the geotransform; fall back to unit spacing only when a GeoTIFF
-    // lacks georeferencing tags (a bare TIFF, not a georeferenced GeoTIFF).
-    let geot = geotransform(&mut decoder).unwrap_or(GeoTransform {
-        origin_x: 0.0,
-        origin_y: 0.0,
-        pixel_scale_x: 1.0,
-        pixel_scale_y: 1.0,
-    });
-    HeightGrid::new(
-        geot.origin_x,
-        geot.origin_y,
-        geot.pixel_scale_x,
-        geot.pixel_scale_y,
-        width,
-        height,
-        north_up,
-    )
+    // Read the geotransform. A bare (unreferenced) TIFF is indexed from (0,0)
+    // with unit spacing, origin at the south-west corner.
+    let geot = geotransform(&mut decoder);
+    match geot {
+        Ok(geot) => {
+            // geotransform gives the north (top) edge; the grid's origin is
+            // the south edge, |dy| per row below that.
+            let south_y = geot.origin_y - (height as f64 - 1.0) * geot.pixel_scale_y;
+            HeightGrid::new(
+                geot.origin_x,
+                south_y,
+                geot.pixel_scale_x,
+                geot.pixel_scale_y,
+                width,
+                height,
+                south_first,
+            )
+        }
+        Err(_) => HeightGrid::new(0.0, 0.0, 1.0, 1.0, width, height, south_first),
+    }
 }
 
 /// A diagnostic terrain-adjusted wind field.

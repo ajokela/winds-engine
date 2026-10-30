@@ -1,6 +1,6 @@
 //! Dem loading: SRTM `.hgt` and (behind `tiff`) GeoTIFF.
 
-use winds_engine::{hgt_grid, SrtmResolution};
+use winds_engine::{from_flt, hgt_grid, SrtmResolution};
 
 fn synthetic_hgt(resolution: SrtmResolution, heights: &[i16]) -> Vec<u8> {
     // Byte-exact SRTM layout: big-endian i16, north→south rows.
@@ -33,14 +33,16 @@ fn hgt_round_trips_a_known_tile() {
     )
     .unwrap();
     assert_eq!((grid.ncols, grid.nrows), (1201, 1201));
-    // Origin is the north-west corner when the reference is the tile corner.
+    // Origin is the south-west corner when the reference is the tile corner:
+    // west edge x = 0, south edge y = -1° of northing.
     assert!((grid.origin_x - 0.0).abs() < 1e-9);
-    assert!((grid.origin_y - 0.0).abs() < 1e-9);
-    // The peak is at the north-west corner: file sample 0 = grid index 0.
+    assert!(grid.origin_y < -100_000.0, "origin_y {}", grid.origin_y);
+    // The peak was the north-west corner (file sample 0); after south-first
+    // storage it lands in the *last* row.
+    let last_row = &grid.heights[(grid.nrows - 1) * grid.ncols..];
     assert!(
-        (grid.heights[0] - 500.0).abs() < 1e-9,
-        "{}",
-        grid.heights[0]
+        last_row.iter().any(|&h| (h - 500.0).abs() < 1e-9),
+        "peak not in north row"
     );
     // SRTM-3 spacing at 45°N: ~65.5 m east-west, ~92.7 m north-south.
     assert!((grid.dx - 65.5).abs() < 1.0, "dx {}", grid.dx);
@@ -89,8 +91,8 @@ fn geotiff_decodes_a_small_raster() {
     let bytes = buffer.into_inner();
     let grid = winds_engine::geotiff_grid(&bytes).unwrap();
     assert_eq!((grid.ncols, grid.nrows), (3, 2));
-    // Rows reversed to north-up: the file's first row (100,200,300) ends up
-    // as the last row, second (400,500,600) as the first.
+    // Rows reversed to south-up: the file's north row (100,200,300) becomes the
+    // last grid row, the south row (400,500,600) becomes row 0.
     assert_eq!(&grid.heights[3..6], &[100.0, 200.0, 300.0]);
     assert_eq!(&grid.heights[0..3], &[400.0, 500.0, 600.0]);
     // Indexed from (0,0): no geotransform in a bare raster.
@@ -129,13 +131,59 @@ fn geotiff_reads_the_geotransform() {
     let grid = winds_engine::geotiff_grid(&buffer.into_inner()).unwrap();
     assert_eq!((grid.ncols, grid.nrows), (3, 2));
     assert!((grid.origin_x - 500000.0).abs() < 1e-6, "{}", grid.origin_x);
+    // North edge is the tiepoint Y (4200000); the grid origin is the south
+    // edge = 4200000 − (2−1)·30.
     assert!(
-        (grid.origin_y - 4200000.0).abs() < 1e-6,
+        (grid.origin_y - 4199970.0).abs() < 1e-6,
         "{}",
         grid.origin_y
     );
     assert!((grid.dx - 30.0).abs() < 1e-9, "dx {}", grid.dx);
     assert!((grid.dy - 30.0).abs() < 1e-9, "dy {}", grid.dy);
+    // South-first storage: the file's north row (100,200,300) is the last
+    // grid row, south row (400,500,600) is row 0.
+    assert_eq!(&grid.heights[0..3], &[400.0, 500.0, 600.0]);
+    assert_eq!(&grid.heights[3..6], &[100.0, 200.0, 300.0]);
+}
+
+#[test]
+fn flt_round_trips_msb_float32() {
+    // 3 cols x 2 rows, MSB float32: row 1 (north) = 100,200,300.
+    let mut flt = Vec::new();
+    for v in [100.0f32, 200.0, 300.0, 400.0, 500.0, 600.0] {
+        flt.extend_from_slice(&v.to_be_bytes());
+    }
+    let hdr = "ncols 3\nnrows 2\nxllcorner 100.0\nyllcorner 200.0\ncellsize 50.0\nNODATA_value -9999\nBYTEORDER MSBFIRST\n";
+    let grid = from_flt(&flt, hdr).unwrap();
+    assert_eq!((grid.ncols, grid.nrows), (3, 2));
+    // South-first storage: the file's north row (100,200,300) is the last grid
+    // row; the south row (400,500,600) is grid row 0.
+    assert_eq!(&grid.heights[0..3], &[400.0, 500.0, 600.0]);
+    assert_eq!(&grid.heights[3..6], &[100.0, 200.0, 300.0]);
+    assert!((grid.dx - 50.0).abs() < 1e-12);
+    // origin_y is the south (lower-left) edge = yll.
+    assert_eq!(grid.origin_y, 200.0);
+}
+
+#[test]
+fn flt_handles_little_endian_and_nodata() {
+    // Little-endian clean raster decodes.
+    let mut flt = Vec::new();
+    for v in [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0] {
+        flt.extend_from_slice(&v.to_le_bytes());
+    }
+    let hdr = "ncols 3\nnrows 2\nxllcorner 0.0\nyllcorner 0.0\ncellsize 10.0\nNODATA_value -9999\nBYTEORDER LSBFIRST\n";
+    let grid = from_flt(&flt, hdr).unwrap();
+    // South-first: file [1,2,3 / 4,-9999,6] becomes [4,5,6 / 1,2,3].
+    assert!((grid.heights[0] - 4.0).abs() < 1e-12);
+    assert!((grid.heights[2] - 6.0).abs() < 1e-12);
+    assert!((grid.heights[3] - 1.0).abs() < 1e-12);
+    // A NODATA cell is rejected (dense DEM required).
+    let mut holed = flt.clone();
+    holed[16..20].copy_from_slice(&(-9999.0f32).to_le_bytes()); // index 4
+    assert!(from_flt(&holed, hdr).is_err());
+    // Mismatched byte count.
+    assert!(from_flt(&flt[..flt.len() - 1], hdr).is_err());
 }
 
 #[test]
@@ -153,12 +201,16 @@ fn hgt_projects_into_local_metres() {
         -92.5,
     )
     .unwrap();
-    // North-west corner is 0.5° north and 0.5° west of the reference:
-    // ~39 km west, ~56 km north at 45° latitude.
+    // The south-west corner is at lon −93° (0.5° west of −92.5 ref ≈ −39 km)
+    // and lat 44° (0.5° south of 44.5 ref ≈ −56 km).
     assert!(
-        centred.origin_x < -38_000.0,
+        (centred.origin_x - -39_300.0).abs() < 500.0,
         "origin_x {}",
         centred.origin_x
     );
-    assert!(centred.origin_y > 54_000.0, "origin_y {}", centred.origin_y);
+    assert!(
+        (centred.origin_y - -55_600.0).abs() < 500.0,
+        "origin_y {}",
+        centred.origin_y
+    );
 }

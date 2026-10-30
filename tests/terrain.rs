@@ -140,11 +140,12 @@ fn ascii_dem_reads_in_english_reading_order() {
     assert_eq!((grid.ncols, grid.nrows), (3, 2));
     assert_eq!(grid.origin_x, 100.0);
     assert_eq!(grid.dx, 50.0);
-    // File row 1 (north) = grid row 0, no reversal.
-    assert_eq!(&grid.heights[0..3], &[100.0, 101.0, 102.0]);
-    assert_eq!(&grid.heights[3..6], &[200.0, 201.0, 202.0]);
-    // origin_y is the north edge: yll + cellsize*nrows.
-    assert_eq!(grid.origin_y, 200.0 + 50.0 * 2.0);
+    // File row 1 is north; the grid stores south-first, so the north row is
+    // now the *last* row. Row 0 (south) is the file's second line.
+    assert_eq!(&grid.heights[0..3], &[200.0, 201.0, 202.0]);
+    assert_eq!(&grid.heights[3..6], &[100.0, 101.0, 102.0]);
+    // origin_y is the south (lower-left) edge = yll, not the north edge.
+    assert_eq!(grid.origin_y, 200.0);
 }
 
 #[test]
