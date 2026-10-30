@@ -24,3 +24,7 @@ default = []
 grib = ["dep:grib"]
 download = ["grib", "dep:ureq"]
 tiff = ["dep:tiff"]
+
+[[example]]
+name = "range"
+required-features = ["tiff"]
