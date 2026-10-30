@@ -2,12 +2,13 @@
 
 Deterministic wind profiles and radiosonde validation for trajectory
 simulation — the wind *data* pipeline for rocket modeling, consumed by
-rockets-engine. Kernel-side wind modeling (the `WindField` trait, profile
-types, analytic profiles) is staged here pending promotion to
-ballistics-engine's `wind` module; see
-[docs/winds-engine-plan.md](docs/winds-engine-plan.md).
+rockets-engine. The wind-field types themselves (the `WindField` trait, the
+profile types, the analytic profiles, `HeightOffset`) are ballistics-engine's
+`wind` module, re-exported here so the pipelines and their consumers share
+one definition; see [docs/winds-engine-plan.md](docs/winds-engine-plan.md).
 
 ```rust
+use nalgebra::Vector3;
 use winds_engine::{Sounding, WindField, validate};
 
 // A measured sounding in the line-based interchange format. Heights are
@@ -16,7 +17,7 @@ let sounding = Sounding::parse("287 0.0 0\n305 3.09 125\n610 3.60 145\n")?;
 // The profile keeps those heights, so it is read with y = height above sea
 // level, the frame rockets-engine uses.
 let profile = sounding.to_profile_field()?;
-let wind = profile.wind(0.0, [0.0, 500.0, 0.0]); // 500 m above sea level
+let wind = profile.wind(0.0, Vector3::new(0.0, 500.0, 0.0)); // 500 m above sea level
 // Or score a candidate profile against the measurement.
 let report = validate::validate(&profile, &sounding);
 ```
@@ -32,30 +33,20 @@ let report = validate::validate(&profile, &sounding);
   rockets-engine (with `BallisticForces` and in its flat-frame CLI, whose
   ground sits at `--ground-altitude-m`, sea level by default).
 - Datum conversion: `LogProfile` and `EkmanProfile` take y as height above
-  the ground, where they are calm. This crate's staged types have no offset
-  wrapper; ballistics-engine's `HeightOffset` (from its next release, which
-  rockets-engine's `=0.48.0` pin does not have) wraps only
-  ballistics-engine's own `WindField`, not this crate's. So a caller in a
-  sea-level frame either reads them at `y - ground elevation` at its single
-  call site, or builds
-  ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from the
-  same values and wraps those in `HeightOffset` (offset = the height of the
-  caller's y = 0 in the field's datum: minus the ground elevation for a log
-  or Ekman profile, none for a sea-level sounding). Convert in one place
-  only: sounding heights stay above sea level, and shifting them as well
-  would move every wind by the site elevation.
+  the ground, where they are calm. Wrap them in `HeightOffset` (re-exported)
+  to read them in another frame: the offset is the height of the caller's
+  y = 0 in the field's datum — minus the ground elevation in a sea-level
+  frame, nothing for a sea-level sounding. Convert in one place only:
+  sounding heights stay above sea level, and shifting them as well would
+  move every wind by the site elevation.
 - `validate`: speed/direction RMSE and per-layer errors vs a sounding.
-- Relationship to ballistics-engine: there is none, by design. The two
-  crates have no dependency either way — ballistics-engine is the
-  trajectory kernel (gravity, drag, the ICAO atmosphere, the integrator);
-  winds-engine owns the wind (profiles, forecast ingestion, terrain flow).
-  They meet in rockets-engine, which depends on both and samples a
-  winds-engine `WindField` through ballistics-engine's force kernel. The
-  field types are this crate's own because ballistics-engine's wind-field
-  core is not released yet; when it ships (adapted from these, but
-  `WindField::wind` takes and returns `nalgebra::Vector3<f64>`, no `Wind`
-  type, constructors return `WindFieldError`), winds-engine moves onto it
-  in a deliberate breaking release and rockets-engine follows.
+- Relationship to ballistics-engine: winds-engine depends on it and
+  re-exports its wind-field core (since 0.6.0, against ballistics-engine
+  0.49.0). The kernel owns gravity, drag, the ICAO atmosphere and the
+  integrator; winds-engine owns the wind *data*: sounding/profile parsing,
+  forecast ingestion and terrain flow. They meet in rockets-engine, which
+  depends on both and samples a `WindField` through ballistics-engine's
+  force kernel.
 
 - `grib` (feature): decode GRIB2 forecast files (GFS isobaric HGT/UGRD/VGRD)
   into a `ProfileField` at a point — bilinear-interpolated, offline and
@@ -72,8 +63,9 @@ let report = validate::validate(&profile, &sounding);
   `monitors_from_geo_csv` project GPS lat/lon and compass directions into
   the field's frame).
 
-Zero dependencies by default (`grib` adds the `grib` crate, `download` adds
-`ureq`); no wall clock or unseeded randomness anywhere — cycle date and
-forecast hour are explicit parameters.
+The default build depends on ballistics-engine (no default features) and
+nalgebra; `grib` adds the `grib` crate, `download` adds `ureq`. No wall
+clock or unseeded randomness anywhere — cycle date and forecast hour are
+explicit parameters.
 
 MIT licensed (see LICENSE).

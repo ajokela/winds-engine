@@ -6,8 +6,20 @@
 //! sounding's altitudes, which are above sea level, not above ground: for a
 //! station at 287 m the first layer spans only 713 m above ground.
 
-use crate::field::{ProfileField, WindField};
 use crate::sounding::Sounding;
+use crate::ProfileField;
+use nalgebra::Vector3;
+
+/// Horizontal speed of a wind vector, m/s.
+fn horizontal_speed(w: Vector3<f64>) -> f64 {
+    w.x.hypot(w.z)
+}
+
+/// Wind-FROM direction of a wind vector, degrees in [0, 360) (0° = headwind,
+/// 90° = from the right).
+fn direction_from_deg(w: Vector3<f64>) -> f64 {
+    (w.z.atan2(w.x).to_degrees() + 180.0).rem_euclid(360.0)
+}
 
 /// Altitude-layer boundaries, metres above sea level (the sounding's datum,
 /// not above ground): 0–1 km, 1–3 km, 3–6 km, 6–10 km, rest.
@@ -47,10 +59,10 @@ pub fn validate(profile: &ProfileField, sounding: &Sounding) -> ValidationReport
     let mut layer_abs = vec![0.0; LAYER_TOPS_M.len() + 1];
     let mut layer_n = vec![0usize; LAYER_TOPS_M.len() + 1];
     for level in &sounding.levels {
-        let wind = profile.wind(0.0, [0.0, level.altitude_m, 0.0]);
-        let speed_err = wind.speed_mps() - level.speed_mps;
+        let wind = profile.wind_at(level.altitude_m);
+        let speed_err = horizontal_speed(wind) - level.speed_mps;
         speed_sq += speed_err * speed_err;
-        let mut dir_err = (wind.direction_from_deg() - level.direction_from_deg) % 360.0;
+        let mut dir_err = (direction_from_deg(wind) - level.direction_from_deg) % 360.0;
         if dir_err > 180.0 {
             dir_err -= 360.0;
         } else if dir_err < -180.0 {

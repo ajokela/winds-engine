@@ -163,7 +163,7 @@
 <body>
 <main>
   <header>
-    <h1>winds-engine <span class="ver">v0.5.0</span></h1>
+    <h1>winds-engine <span class="ver">v0.6.0</span></h1>
     <p class="tagline">Deterministic wind fields for trajectory simulation — profiles, forecast and terrain — in Rust.</p>
     <svg class="profile" viewBox="0 0 780 170" aria-hidden="true">
       <line class="axis" x1="40" y1="160" x2="40" y2="10"/>
@@ -189,7 +189,7 @@
     </svg>
   </header>
 
-  <div class="install"><span class="p"># Cargo.toml</span><br>winds-engine = "0.5"</div>
+  <div class="install"><span class="p"># Cargo.toml</span><br>winds-engine = "0.6"</div>
 
   <h2>What it does</h2>
   <ul>
@@ -197,7 +197,8 @@
     <li><b><code>ConstantField</code></b> — uniform wind everywhere.</li>
     <li><b><code>ProfileField</code> / <code>ProfileLevel</code></b> — a piecewise-linear vertical profile. Speed interpolates linearly with height and direction along the shortest arc (350° to 10° passes through 0°); the nearest level holds above and below. Levels are checked and sorted.</li>
     <li><b><code>LogProfile</code></b> — log-law boundary layer from a reference speed, a reference height and a roughness length; calm at and below the roughness length, constant direction.</li>
-    <li><b><code>EkmanProfile</code></b> — the Ekman spiral for constant eddy viscosity, from a geostrophic speed and direction, a latitude and an eddy viscosity: calm at the ground, turning toward the geostrophic wind aloft. At latitude 0 there is no Coriolis turning, so it is calm at every height.</li>
+    <li><b><code>EkmanProfile</code></b> — the Ekman spiral for constant eddy viscosity, from a geostrophic speed and direction, a latitude and an eddy viscosity: calm at the ground, turning toward the geostrophic wind aloft. The constructor rejects the equator (latitude 0), where the solution has no boundary layer.</li>
+    <li><b><code>HeightOffset</code></b> — reads any field at a shifted height, so a ground-relative profile (log, Ekman) drops into a sea-level frame: convert the datum in one place, once.</li>
     <li><b><code>Sounding</code></b> — parses a deliberately trivial line format (<code>altitude_m speed_mps direction_from_deg</code> lines, plus <code>#</code> comments, where <code># station:</code> and <code># valid:</code> set the header fields), so radiosonde archives convert offline. Tested against a real 115-level KMPX sounding from the Iowa State IEM RAOB archive.</li>
     <li><b><code>validate</code></b> — scores a <code>ProfileField</code> against a sounding at the sounding's own levels: speed RMSE, circular direction RMSE, and mean absolute speed error per layer (0–1, 1–3, 3–6, 6–10 km, then the rest).</li>
     <li><b><code>grib</code></b> (feature) — decode GRIB2 forecast files (GFS isobaric HGT/UGRD/VGRD) into a <code>ProfileField</code> at a point, bilinear-interpolated; offline and deterministic.</li>
@@ -205,7 +206,7 @@
     <li><b><code>TerrainFlowField</code> / <code>HeightGrid</code></b> — a diagnostic mass-consistent terrain wind: adjust a base field so flow is deflected over and around a DEM, satisfying 2-D horizontal mass conservation.</li>
     <li><b><code>Monitor</code></b> — surface wind observations fed as soft constraints: <code>from_geo</code> and <code>monitors_from_geo_csv</code> project GPS lat/lon into the field's frame and rotate compass directions, so a distributed sensor network slots straight in.</li>
   </ul>
-  <p>Zero dependencies. No network, no wall clock, no unseeded randomness.</p>
+  <p>Built on ballistics-engine's wind-field core (re-exported) and nalgebra; the only optional extras are <code>grib</code> and <code>download</code>. No network, no wall clock, no unseeded randomness.</p>
 
   <h2>Conventions</h2>
   <ul>
@@ -216,21 +217,20 @@
 
   <h2>Heights</h2>
   <p>Sounding heights are metres above sea level, and <code>to_profile_field()</code> keeps them there, so the profile reads directly in a frame whose y is altitude above sea level, like rockets-engine's. The layers in <code>validate</code> use the same sea-level heights.</p>
-  <p><code>LogProfile</code> and <code>EkmanProfile</code> take y as height above the ground, where they are calm. In a sea-level frame, read them at <code>y − ground elevation</code>. This crate has no offset wrapper, so convert in one place only: shifting the sounding too would move every wind by the site elevation.</p>
+  <p><code>LogProfile</code> and <code>EkmanProfile</code> take y as height above the ground, where they are calm. In a sea-level frame, wrap them in <code>HeightOffset</code> with offset <code>−ground elevation</code> — convert in one place only: shifting the sounding too would move every wind by the site elevation.</p>
 
   <h2>Example</h2>
-  <pre class="code"><code><span class="k">use</span> <span class="t">winds_engine</span>::analytic::<span class="t">LogProfile</span>;
-<span class="k">use</span> <span class="t">winds_engine</span>::{validate, <span class="t">ProfileField</span>, <span class="t">ProfileLevel</span>, <span class="t">Sounding</span>, <span class="t">WindField</span>};
+  <pre class="code"><code><span class="k">use</span> <span class="t">nalgebra</span>::<span class="t">Vector3</span>;
+<span class="k">use</span> <span class="t">winds_engine</span>::{validate, <span class="t">HeightOffset</span>, <span class="t">LogProfile</span>, <span class="t">ProfileField</span>, <span class="t">ProfileLevel</span>, <span class="t">Sounding</span>, <span class="t">WindField</span>};
 
-<span class="k">fn</span> main() -&gt; <span class="t">winds_engine</span>::<span class="t">Result</span>&lt;()&gt; {
+<span class="k">fn</span> main() -&gt; <span class="t">Result</span>&lt;(), <span class="t">Box</span>&lt;<span class="k">dyn</span> <span class="t">std</span>::error::<span class="t">Error</span>&gt;&gt; {
     <span class="c">// altitude_m speed_mps direction_from_deg; heights above sea level</span>
     <span class="k">let</span> sounding = <span class="t">Sounding</span>::parse(<span class="s">"287 0.0 0\n305 3.09 125\n610 3.60 145\n"</span>)?;
 
     <span class="c">// The profile keeps those heights: read it at y = altitude above sea level.</span>
     <span class="k">let</span> measured = sounding.to_profile_field()?;
-    <span class="k">let</span> wind = measured.wind(<span class="n">0.0</span>, [<span class="n">0.0</span>, <span class="n">500.0</span>, <span class="n">0.0</span>]);
-    <span class="k">let</span> (speed, from) = (wind.speed_mps(), wind.direction_from_deg());
-    <span class="m">println!</span>(<span class="s">"{speed:.2} m/s from {from:.0} deg"</span>);
+    <span class="k">let</span> wind = measured.wind(<span class="n">0.0</span>, <span class="t">Vector3</span>::new(<span class="n">0.0</span>, <span class="n">500.0</span>, <span class="n">0.0</span>));
+    <span class="m">println!</span>(<span class="s">"{:.2} m/s"</span>, wind.x.hypot(wind.z));
 
     <span class="c">// Score a candidate profile, on the same sea-level heights, against it.</span>
     <span class="k">let</span> candidate = <span class="t">ProfileField</span>::new(<span class="m">vec!</span>[
@@ -240,23 +240,23 @@
     <span class="k">let</span> report = validate::validate(&amp;candidate, &amp;sounding);
     <span class="m">println!</span>(<span class="s">"speed RMSE {:.2} m/s"</span>, report.speed_rmse_mps);
 
-    <span class="c">// A log law is calm at the ground: convert the datum here, once.</span>
-    <span class="k">let</span> ground_m = <span class="n">287.0</span>;
-    <span class="k">let</span> log = <span class="t">LogProfile</span>::new(<span class="n">8.0</span>, <span class="n">10.0</span>, <span class="n">0.03</span>, <span class="n">270.0</span>)?;
-    <span class="k">let</span> low = log.wind(<span class="n">0.0</span>, [<span class="n">0.0</span>, <span class="n">500.0</span> - ground_m, <span class="n">0.0</span>]);
-    <span class="m">println!</span>(<span class="s">"{:.2} m/s"</span>, low.speed_mps());
+    <span class="c">// A log law measures height from the ground: HeightOffset reads it in the</span>
+    <span class="c">// sea-level frame (offset = minus the ground elevation), converting once.</span>
+    <span class="k">let</span> log = <span class="t">HeightOffset</span>::new(<span class="t">LogProfile</span>::new(<span class="n">8.0</span>, <span class="n">10.0</span>, <span class="n">0.03</span>, <span class="n">270.0</span>)?, -<span class="n">287.0</span>)?;
+    <span class="k">let</span> low = log.wind(<span class="n">0.0</span>, <span class="t">Vector3</span>::new(<span class="n">0.0</span>, <span class="n">500.0</span>, <span class="n">0.0</span>));
+    <span class="m">println!</span>(<span class="s">"{:.2} m/s"</span>, low.x.hypot(low.z));
     <span class="t">Ok</span>(())
 }</code></pre>
   <p class="note">Needs Rust 1.89 or newer. The README walks through the same sounding.</p>
 
   <h2>Where it fits</h2>
   <ul>
-    <li><b>ballistics-engine</b> — the trajectory kernel winds-engine supplies air to. The two crates have no dependency on each other: ballistics-engine owns gravity, drag, the ICAO atmosphere and the integrator; winds-engine owns the wind (profiles, forecast ingestion, terrain flow). They meet in rockets-engine, which depends on both and samples a winds-engine <code>WindField</code> through ballistics-engine's force kernel. The field types are staged here only because ballistics-engine's own wind-field core is not released yet; when it ships (adapted from these, but nalgebra vectors in and out, no <code>Wind</code> type, its own error type), winds-engine moves onto it in a deliberate breaking release and rockets-engine follows.</li>
-    <li><b>rockets-engine</b> — the consumer it is built for: sounding profiles keep sea-level heights, the same height datum as rockets-engine's frame. Since rockets-engine 0.16.0 it depends on winds-engine: <code>BallisticForces</code>, the weathercock and the recovery descent share an <code>Arc&lt;dyn WindField&gt;</code>, and the CLI flies <code>--wind-profile</code>, <code>--wind-sounding</code>, <code>--wind-grib</code> (forecast wind) and <code>--wind-dem</code>/<code>--wind-monitors</code> (terrain-adjusted wind from distributed sensors). When the ballistics-engine wind-field release lands, winds-engine moves to the kernel API in a deliberate breaking release and rockets-engine follows.</li>
+    <li><b>ballistics-engine</b> — the trajectory kernel, and since winds-engine 0.6.0 the source of the wind-field core itself: <code>WindField</code>, the profile types, <code>HeightOffset</code> and <code>WindFieldError</code> are ballistics-engine's <code>wind</code> module (released in ballistics-engine 0.49.0), re-exported here so the pipelines and their consumers share one definition. The kernel owns gravity, drag, the ICAO atmosphere and the integrator; winds-engine owns the wind <em>data</em>: soundings, forecast ingestion, terrain flow.</li>
+    <li><b>rockets-engine</b> — the consumer it is built for: sounding profiles keep sea-level heights, the same height datum as rockets-engine's frame. <code>BallisticForces</code>, the weathercock and the recovery descent share an <code>Arc&lt;dyn WindField&gt;</code>, and the CLI flies <code>--wind-profile</code>, <code>--wind-sounding</code>, <code>--wind-grib</code> (forecast wind) and <code>--wind-dem</code>/<code>--wind-monitors</code> (terrain-adjusted wind from distributed sensors). rockets-engine tracks the kernel-field API in lockstep with winds-engine 0.6.</li>
   </ul>
 
   <h2>Status</h2>
-  <p>Version 0.5.0, published on <a href="https://crates.io/crates/winds-engine">crates.io</a>; API docs at <a href="https://docs.rs/winds-engine">docs.rs/winds-engine</a>. It is a library only, with no CLI and no browser terminal.</p>
+  <p>Version 0.6.0, published on <a href="https://crates.io/crates/winds-engine">crates.io</a>; API docs at <a href="https://docs.rs/winds-engine">docs.rs/winds-engine</a>. It is a library only, with no CLI and no browser terminal.</p>
   <p class="note">Planned, not built: more sounding validation days (one KMPX profile is checked in), and a full 3-D terrain mesh — the diagnostic 2-D-per-level adjustment above is the cheap first tier.</p>
 
   <h2>Get it</h2>

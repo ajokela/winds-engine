@@ -1,5 +1,6 @@
+use nalgebra::Vector3;
 use winds_engine::terrain::{HeightGrid, TerrainFlowField};
-use winds_engine::{ConstantField, Wind, WindField};
+use winds_engine::{ConstantField, WindField};
 
 /// A 41×21 grid (100 m cells) with a smooth ridge running north–south.
 fn ridge_grid() -> HeightGrid {
@@ -16,11 +17,13 @@ fn ridge_grid() -> HeightGrid {
 }
 
 fn east_wind(speed: f64) -> ConstantField {
-    // FROM 0° = from +X = blows toward −X (a headwind). For an eastward
-    // frame we want air moving +X, i.e. FROM 180°.
-    ConstantField {
-        wind: Wind::from_speed_direction(speed, 180.0),
-    }
+    // Air moving +X (FROM 180° in the wind-FROM convention).
+    ConstantField(Vector3::new(speed, 0.0, 0.0))
+}
+
+/// Horizontal speed of a wind vector.
+fn speed(w: Vector3<f64>) -> f64 {
+    w.x.hypot(w.z)
 }
 
 #[test]
@@ -29,10 +32,8 @@ fn ridge_speeds_up_over_the_crest_and_returns_to_free_stream() {
     let base = east_wind(10.0);
     let field =
         TerrainFlowField::adjust(grid.clone(), &base, &[], &[50.0], 2000.0, 300.0, 400.0).unwrap();
-    let speed_at = |x: f64| {
-        let w = field.wind(0.0, [x, grid.height_at(x, 0.0) + 50.0, 0.0]);
-        w.speed_mps()
-    };
+    let speed_at =
+        |x: f64| speed(field.wind(0.0, Vector3::new(x, grid.height_at(x, 0.0) + 50.0, 0.0)));
     // A symmetric hill under uniform wind speeds up monotonically toward
     // the crest and relaxes to the free stream far upwind — no shelter on a
     // symmetric ridge (Jackson-Hunt behaviour).
@@ -58,11 +59,11 @@ fn flat_ground_with_uniform_wind_is_unchanged() {
         TerrainFlowField::adjust(grid.clone(), &base, &[], &[30.0], 1000.0, 200.0, 400.0).unwrap();
     for x in [50.0, 250.0, 450.0] {
         for z in [50.0, 250.0, 450.0] {
-            let w = field.wind(0.0, [x, grid.height_at(x, z) + 30.0, z]);
+            let w = field.wind(0.0, Vector3::new(x, grid.height_at(x, z) + 30.0, z));
             assert!(
-                (w.speed_mps() - 8.0).abs() < 1e-3,
+                (speed(w) - 8.0).abs() < 1e-3,
                 "speed {} at ({x}, {z})",
-                w.speed_mps()
+                speed(w)
             );
         }
     }
@@ -84,17 +85,17 @@ fn monitors_bend_the_wind_near_them_and_relax_away() {
         400.0,
     )
     .unwrap();
-    let near = field.wind(0.0, [1000.0, 20.0, 1000.0]);
+    let near = field.wind(0.0, Vector3::new(1000.0, 20.0, 1000.0));
     // Near the monitor the wind approaches the observed crosswind direction.
     assert!(
-        near.z_mps.abs() > near.x_mps.abs(),
+        near.z.abs() > near.x.abs(),
         "near the monitor should blow crosswind: {near:?}"
     );
     // Away from the monitor it relaxes toward the east background (the
     // domain edge holds the background wind).
-    let far = field.wind(0.0, [0.0, 20.0, 0.0]);
+    let far = field.wind(0.0, Vector3::new(0.0, 20.0, 0.0));
     assert!(
-        far.x_mps.abs() > far.z_mps.abs(),
+        far.x.abs() > far.z.abs(),
         "far away should return toward eastward: {far:?}"
     );
 }
@@ -123,7 +124,10 @@ fn adjustment_is_deterministic() {
     )
     .unwrap();
     for x in [-1500.0, -500.0, 0.0, 500.0, 1500.0] {
-        assert_eq!(a.wind(0.0, [x, 140.0, 0.0]), b.wind(0.0, [x, 140.0, 0.0]));
+        assert_eq!(
+            a.wind(0.0, Vector3::new(x, 140.0, 0.0)),
+            b.wind(0.0, Vector3::new(x, 140.0, 0.0))
+        );
     }
 }
 

@@ -162,3 +162,30 @@ and the same `profile_from_grib2` decodes them (HRRR's Lambert grid and
 complex packing are built into the `grib` crate). HRRR's index parsing
 is pinned against a checked-in golden `.idx`; the live round-trip runs
 as an ignored test.
+
+## Status: moved onto the kernel wind-field core (2026-10-29)
+
+ballistics-engine 0.49.0 shipped its `wind` module on 2026-10-27, and
+winds-engine 0.6.0 is the deliberate breaking release this plan promised:
+the staged `src/field.rs`/`src/analytic.rs` are gone, and the crate
+re-exports `WindField`, `ConstantField`, `ProfileField`, `ProfileLevel`,
+`LogProfile`, `EkmanProfile`, `HeightOffset` and the `WindFieldError`
+types from `ballistics_engine::wind` (`default-features = false`, so its
+online/pdf/cli/ffi extras stay out). Consequences, all intended:
+
+- `WindField::wind` takes and returns `nalgebra::Vector3<f64>`; the `Wind`
+  type is gone. `TerrainFlowField` implements the kernel trait, and
+  `validate` reads the kernel `ProfileField`.
+- Constructors return `WindFieldError`: `Sounding::to_profile_field`
+  returns it directly; `grib::profile_from_grib2` maps it into the crate
+  `Error` so the decode path keeps one error type.
+- `HeightOffset` is now available to consumers, so the datum-conversion
+  dance the README used to describe ("read at `y - ground elevation` at
+  the call site, no wrapper exists") is a one-line wrap.
+- The kernel `EkmanProfile` rejects latitude 0 (the old staged type
+  accepted it and returned calm air); behavior at exactly-opposite
+  profile directions now turns clockwise, per the kernel's pinned tests.
+- The old zero-dependency default build ends by design: the dependency
+  edge winds-engine → ballistics-engine replaces the sideways
+  "meet in rockets-engine" arrangement. rockets-engine switches its
+  import and its `=0.48.0` kernel pin follows to 0.49.

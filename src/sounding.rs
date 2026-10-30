@@ -12,11 +12,10 @@
 //! ```
 //!
 //! Blank lines and `#` comments are ignored; `# station:` and `# valid:`
-//! header keys are carried along. Directions are meteorological FROM (see
-//! [`Wind::from_speed_direction`](crate::Wind::from_speed_direction)).
+//! header keys are carried along. Directions are wind-FROM in the frame
+//! convention of [`ProfileField`]: 0° = headwind, 90° = from the right.
 
-use crate::field::{ProfileField, ProfileLevel};
-use crate::{Error, Result};
+use crate::{Error, ProfileField, ProfileLevel, Result, WindFieldError};
 
 /// One measured level.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -106,16 +105,14 @@ impl Sounding {
     /// above mean sea level, as measured, so the field matches a frame whose y is altitude above
     /// sea level (rockets-engine's) with no conversion, wherever that frame's ground sits.
     ///
-    /// Convert datums in one place only, never in these levels as well. This crate's staged
-    /// types have no offset wrapper: ballistics-engine's `HeightOffset` (from its next release)
-    /// wraps only ballistics-engine's own `WindField`, not this crate's (the two crates' wind
-    /// types differ; see the [crate docs](crate)). So a caller in a sea-level frame reads a
-    /// ground-relative field such as [`LogProfile`](crate::analytic::LogProfile) or
-    /// [`EkmanProfile`](crate::analytic::EkmanProfile) at `y - ground elevation` at its single
-    /// call site, or builds ballistics-engine's `ProfileField`/`LogProfile`/`EkmanProfile` from
-    /// the same values and wraps those in `HeightOffset`. This field, being above sea level,
-    /// needs no offset in a sea-level frame.
-    pub fn to_profile_field(&self) -> Result<ProfileField> {
+    /// Convert datums in one place only, never in these levels as well: wrap
+    /// the field in [`HeightOffset`](crate::HeightOffset) (offset = the
+    /// height of the caller's y = 0 in this field's datum), or read a
+    /// ground-relative field such as [`LogProfile`](crate::LogProfile) or
+    /// [`EkmanProfile`](crate::EkmanProfile) at `y - ground elevation` at its
+    /// single call site. This field, being above sea level, needs no offset
+    /// in a sea-level frame.
+    pub fn to_profile_field(&self) -> std::result::Result<ProfileField, WindFieldError> {
         ProfileField::new(
             self.levels
                 .iter()

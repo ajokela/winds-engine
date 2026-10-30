@@ -1,37 +1,33 @@
-//! Deterministic wind fields and radiosonde validation for trajectory
-//! simulation, consumed by rockets-engine.
+//! Deterministic wind data for trajectory simulation, consumed by
+//! rockets-engine.
 //!
-//! Everything here is stateless and reproducible from inputs: no network, no
-//! wall clock, no unseeded randomness. The [`WindField`] trait, the profile
-//! types and the analytic profiles are this crate's own. They were the
-//! staging ground for the modeling core planned for ballistics-engine's
-//! `wind` module (see `docs/winds-engine-plan.md`), but ballistics-engine's
-//! wind fields (unreleased) differ: its `WindField::wind` takes and returns
-//! `nalgebra::Vector3<f64>`, with no counterpart to [`Wind`]; its
-//! `ConstantField` is a tuple struct over that vector; its `LogProfile` and
-//! `EkmanProfile` keep their fields private behind getters; and its
-//! constructors return `WindFieldError`. Moving this crate onto those types
-//! changes its public API (every [`WindField::wind`] call,
-//! [`validate::validate`]'s signature), so it is a deliberate breaking
-//! release, not a drop-in re-export.
+//! The wind-field types — the [`WindField`] trait, [`ConstantField`],
+//! [`ProfileField`], [`LogProfile`], [`EkmanProfile`] and the [`HeightOffset`]
+//! datum wrapper — are ballistics-engine's (its `wind` module, since
+//! ballistics-engine 0.49.0), re-exported here so this crate's pipelines and
+//! its consumers share one definition. Everything is stateless and
+//! reproducible from inputs: no wall clock or unseeded randomness anywhere,
+//! and no network except the `download` feature.
 //!
-//! - [`field`]: the [`WindField`] trait, [`ConstantField`], [`ProfileField`].
-//! - [`analytic`]: [`LogProfile`](analytic::LogProfile) and
-//!   [`EkmanProfile`](analytic::EkmanProfile) boundary-layer models.
 //! - [`sounding`]: radiosonde interchange-format parsing.
 //! - [`validate`]: profile-vs-sounding comparison metrics.
+//! - [`terrain`]: a diagnostic mass-consistent terrain wind.
+//! - `grib` (feature): GRIB2 forecast files into a [`ProfileField`].
+//! - `download` (feature): live GFS/HRRR acquisition, the only networked
+//!   code in the crate.
 
-pub mod analytic;
 #[cfg(feature = "download")]
 pub mod download;
-pub mod field;
 #[cfg(feature = "grib")]
 pub mod grib;
 pub mod sounding;
 pub mod terrain;
 pub mod validate;
 
-pub use field::{ConstantField, ProfileField, ProfileLevel, Wind, WindField};
+pub use ballistics_engine::wind::{
+    ConstantField, EkmanProfile, HeightOffset, LogProfile, ProfileField, ProfileLevel, WindField,
+    WindFieldError, WindFieldParam, WindFieldRule,
+};
 pub use sounding::{Sounding, SoundingLevel};
 pub use terrain::{local_en_m, monitors_from_geo_csv, HeightGrid, Monitor, TerrainFlowField};
 pub use validate::{LayerError, ValidationReport};

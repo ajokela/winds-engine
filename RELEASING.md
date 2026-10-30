@@ -23,8 +23,10 @@ cargo test --features grib      # GRIB2 decoding
 cargo test --features download  # HTTP acquisition (urllib + range requests)
 ```
 
-The default build must stay zero-dependency (`cargo tree --depth 0` shows
-only winds-engine). `grib` and `download` are the only optional deps/features.
+The default build depends only on ballistics-engine (`default-features =
+false`: the wind-field core, re-exported) and nalgebra — check with
+`cargo tree --depth 1`. `grib` and `download` are the only optional
+deps/features.
 
 Live NOAA tests are `#[ignore]`d — run manually if you touch fetch/decoding:
 
@@ -64,5 +66,6 @@ truth — edit `site/` here.
 
 Core: no network, no wall clock, no unseeded randomness. Acquisition
 (HTTP) lives behind the `download` feature only; the decode/validate path
-is offline and deterministic. Terrain (`terrain.rs`), profiles and
-analytics are zero-dependency.
+is offline and deterministic. The wind-field core is ballistics-engine's
+`wind` module (no default features), re-exported; terrain (`terrain.rs`)
+adds nothing beyond nalgebra.

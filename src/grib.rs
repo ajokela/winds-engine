@@ -4,8 +4,7 @@
 //! out. Acquisition (downloading those bytes) lives behind the `download`
 //! feature in [`crate::download`].
 
-use crate::field::{ProfileField, ProfileLevel};
-use crate::{Error, Result};
+use crate::{Error, ProfileField, ProfileLevel, Result};
 use grib::{Grib2SubmessageDecoder, LatLons};
 
 /// GRIB2 parameter (discipline, category, number) for the variables a wind
@@ -157,10 +156,10 @@ fn bilinear_sample(
 /// Decode GRIB2 messages with geopotential height, U and V components on
 /// isobaric surfaces into a [`ProfileField`] at one point.
 ///
-/// Sampling is the nearest grid point (adequate for the few-km grids these
-/// products ship; bilinear interpolation is a documented future refinement).
-/// Heights come from the geopotential-height field, so the profile is on the
-/// same metres-above-sea-level datum as the rest of the crate.
+/// Sampling is bilinear over the enclosing grid cell, falling back to the
+/// nearest point at the grid edges. Heights come from the geopotential-height
+/// field, so the profile is on the same metres-above-sea-level datum as the
+/// rest of the crate.
 ///
 /// `launch_azimuth_deg` is the compass direction of the downrange +X axis,
 /// converting meteorological FROM-directions (clockwise from north) into the
@@ -248,5 +247,5 @@ pub fn profile_from_grib2(
         });
     }
 
-    ProfileField::new(profile_levels)
+    ProfileField::new(profile_levels).map_err(|e| Error::invalid("grib2", e.to_string()))
 }

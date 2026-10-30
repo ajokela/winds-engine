@@ -4,9 +4,8 @@
 //! cycle date and forecast hour explicitly — no wall clock here either, so
 //! requests are reproducible.
 
-use crate::field::ProfileField;
 use crate::grib::profile_from_grib2;
-use crate::{Error, Result};
+use crate::{Error, ProfileField, Result};
 use std::io::Read;
 
 /// The forecast model to subset.

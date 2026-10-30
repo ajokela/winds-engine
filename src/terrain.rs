@@ -8,11 +8,18 @@
 //! of terrain flow, not a full CFD solve. Entirely offline and
 //! deterministic.
 
-use crate::field::{Wind, WindField};
-use crate::{Error, Result};
+use crate::{Error, Result, WindField};
+use nalgebra::Vector3;
 
 /// Earth's mean radius for the local-tangent metre projection.
 const EARTH_RADIUS_M: f64 = 6_371_000.0;
+
+/// Horizontal wind vector from a speed and a wind-FROM direction in the frame
+/// convention (0° = from +x, a headwind; 90° = from +z, the right).
+fn horizontal(speed_mps: f64, direction_from_deg: f64) -> Vector3<f64> {
+    let toward = (direction_from_deg + 180.0).to_radians();
+    Vector3::new(speed_mps * toward.cos(), 0.0, speed_mps * toward.sin())
+}
 
 /// One surface wind observation, in the terrain grid's frame (metres).
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -23,8 +30,8 @@ pub struct Monitor {
     pub z_m: f64,
     /// Wind speed, metres per second.
     pub speed_mps: f64,
-    /// Meteorological FROM-direction in the frame convention: 0° = from
-    /// +x (a headwind), 90° = from the right (see [`Wind::from_speed_direction`]).
+    /// Wind-FROM direction in the frame convention: 0° = from +x (a
+    /// headwind), 90° = from +z, the right.
     pub direction_from_deg: f64,
 }
 
@@ -341,17 +348,20 @@ impl TerrainFlowField {
                     let x = grid.origin_x + j as f64 * grid.dx;
                     let z = grid.origin_y + i as f64 * grid.dy;
                     let height = grid.heights[i * ncols + j] + level;
-                    let bg = base.wind(0.0, [x, height, z]);
+                    let bg = base.wind(0.0, Vector3::new(x, height, z));
                     let (mut cx, mut cz, mut wsum) = (0.0, 0.0, 0.0);
                     for m in monitors {
-                        let mw = Wind::from_speed_direction(m.speed_mps, m.direction_from_deg);
-                        let bg_m = base.wind(0.0, [m.x_m, grid.height_at(m.x_m, m.z_m), m.z_m]);
+                        let mw = horizontal(m.speed_mps, m.direction_from_deg);
+                        let bg_m = base.wind(
+                            0.0,
+                            Vector3::new(m.x_m, grid.height_at(m.x_m, m.z_m), m.z_m),
+                        );
                         let dx = x - m.x_m;
                         let dz = z - m.z_m;
                         let weight = (-(dx * dx + dz * dz) / (obs_length_m * obs_length_m)).exp()
                             * (-level / surface_decay_m).exp();
-                        cx += weight * (mw.x_mps - bg_m.x_mps);
-                        cz += weight * (mw.z_mps - bg_m.z_mps);
+                        cx += weight * (mw.x - bg_m.x);
+                        cz += weight * (mw.z - bg_m.z);
                         wsum += weight;
                     }
                     if wsum > 0.0 {
@@ -361,8 +371,8 @@ impl TerrainFlowField {
                         cx /= wsum + w_floor;
                         cz /= wsum + w_floor;
                     }
-                    u0[i * ncols + j] = bg.x_mps + cx;
-                    v0[i * ncols + j] = bg.z_mps + cz;
+                    u0[i * ncols + j] = bg.x + cx;
+                    v0[i * ncols + j] = bg.z + cz;
                 }
             }
             // Solve div(u) = 0, u = u0 - grad(phi), including the
@@ -466,12 +476,8 @@ impl TerrainFlowField {
 }
 
 impl WindField for TerrainFlowField {
-    fn wind(&self, _time_s: f64, position_m: [f64; 3]) -> Wind {
-        let (u, v) = self.horizontal_at(position_m[0], position_m[1], position_m[2]);
-        Wind {
-            x_mps: u,
-            y_mps: 0.0,
-            z_mps: v,
-        }
+    fn wind(&self, _time_s: f64, position_m: Vector3<f64>) -> Vector3<f64> {
+        let (u, v) = self.horizontal_at(position_m.x, position_m.y, position_m.z);
+        Vector3::new(u, 0.0, v)
     }
 }

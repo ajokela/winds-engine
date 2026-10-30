@@ -1,6 +1,8 @@
-use winds_engine::analytic::{EkmanProfile, LogProfile};
+use nalgebra::Vector3;
 use winds_engine::validate;
-use winds_engine::{ConstantField, ProfileField, ProfileLevel, Sounding, Wind, WindField};
+use winds_engine::{
+    ConstantField, EkmanProfile, LogProfile, ProfileField, ProfileLevel, Sounding, WindField,
+};
 
 fn level(altitude_m: f64, speed_mps: f64, direction_from_deg: f64) -> ProfileLevel {
     ProfileLevel {
@@ -10,47 +12,66 @@ fn level(altitude_m: f64, speed_mps: f64, direction_from_deg: f64) -> ProfileLev
     }
 }
 
+/// Horizontal wind from a speed and a wind-FROM direction in the frame
+/// convention (0° = headwind, 90° = from the right).
+fn horizontal(speed_mps: f64, direction_from_deg: f64) -> Vector3<f64> {
+    let toward = (direction_from_deg + 180.0).to_radians();
+    Vector3::new(speed_mps * toward.cos(), 0.0, speed_mps * toward.sin())
+}
+
+/// Horizontal speed of a wind vector.
+fn speed(w: Vector3<f64>) -> f64 {
+    w.x.hypot(w.z)
+}
+
+/// Wind-FROM direction of a wind vector, degrees in [0, 360).
+fn direction_from(w: Vector3<f64>) -> f64 {
+    (w.z.atan2(w.x).to_degrees() + 180.0).rem_euclid(360.0)
+}
+
+/// Signed difference a - b, wrapped to (-180, 180].
+fn angle_diff(a: f64, b: f64) -> f64 {
+    let d = (a - b).rem_euclid(360.0);
+    if d > 180.0 {
+        d - 360.0
+    } else {
+        d
+    }
+}
+
 #[test]
 fn wind_direction_round_trips() {
     // FROM 0° blows toward −X (a headwind); FROM 90° toward −Z.
-    let headwind = Wind::from_speed_direction(10.0, 0.0);
-    assert!((headwind.x_mps + 10.0).abs() < 1e-12);
-    assert!(headwind.z_mps.abs() < 1e-12);
-    assert!((headwind.direction_from_deg()).abs() < 1e-9);
-    let cross = Wind::from_speed_direction(10.0, 90.0);
-    assert!(cross.x_mps.abs() < 1e-12);
-    assert!((cross.z_mps + 10.0).abs() < 1e-12);
+    let headwind = horizontal(10.0, 0.0);
+    assert!((headwind.x + 10.0).abs() < 1e-12);
+    assert!(headwind.z.abs() < 1e-12);
+    assert!(direction_from(headwind).abs() < 1e-9);
+    let cross = horizontal(10.0, 90.0);
+    assert!(cross.x.abs() < 1e-12);
+    assert!((cross.z + 10.0).abs() < 1e-12);
     for deg in [1.0, 90.0, 179.9, 181.0, 270.0, 359.9] {
-        let w = Wind::from_speed_direction(7.0, deg);
-        assert!((w.speed_mps() - 7.0).abs() < 1e-9);
-        let mut back = w.direction_from_deg() - deg;
-        if back > 180.0 {
-            back -= 360.0;
-        } else if back < -180.0 {
-            back += 360.0;
-        }
-        assert!(back.abs() < 1e-9, "deg {deg} back {back}");
+        let w = horizontal(7.0, deg);
+        assert!((speed(w) - 7.0).abs() < 1e-9);
+        assert!(angle_diff(direction_from(w), deg).abs() < 1e-9, "deg {deg}");
     }
 }
 
 #[test]
 fn constant_field_is_constant() {
-    let field = ConstantField {
-        wind: Wind::from_speed_direction(5.0, 45.0),
-    };
+    let field = ConstantField(horizontal(5.0, 45.0));
     assert_eq!(
-        field.wind(0.0, [0.0, 0.0, 0.0]),
-        field.wind(99.0, [1.0, 2.0, 3.0])
+        field.wind(0.0, Vector3::zeros()),
+        field.wind(99.0, Vector3::new(1.0, 2.0, 3.0))
     );
 }
 
 #[test]
 fn profile_interpolates_speed_linearly() {
     let profile = ProfileField::new(vec![level(0.0, 2.0, 0.0), level(1000.0, 12.0, 0.0)]).unwrap();
-    assert!((profile.wind_at(500.0).speed_mps() - 7.0).abs() < 1e-12);
+    assert!((speed(profile.wind_at(500.0)) - 7.0).abs() < 1e-12);
     // Below and above the levels, the nearest holds.
-    assert!((profile.wind_at(-50.0).speed_mps() - 2.0).abs() < 1e-12);
-    assert!((profile.wind_at(5000.0).speed_mps() - 12.0).abs() < 1e-12);
+    assert!((speed(profile.wind_at(-50.0)) - 2.0).abs() < 1e-12);
+    assert!((speed(profile.wind_at(5000.0)) - 12.0).abs() < 1e-12);
 }
 
 #[test]
@@ -58,9 +79,9 @@ fn profile_interpolates_direction_along_the_short_arc() {
     // 350° to 10°: through 0°, never through 180°.
     let profile =
         ProfileField::new(vec![level(0.0, 5.0, 350.0), level(1000.0, 5.0, 10.0)]).unwrap();
-    let mid = profile.wind_at(500.0).direction_from_deg();
+    let mid = direction_from(profile.wind_at(500.0));
     assert!(!(10.0..=350.0).contains(&mid), "mid {mid}");
-    let quarter = profile.wind_at(250.0).direction_from_deg();
+    let quarter = direction_from(profile.wind_at(250.0));
     assert!(quarter > 350.0, "quarter {quarter}");
 }
 
@@ -71,7 +92,7 @@ fn profile_validates_its_levels() {
     assert!(ProfileField::new(vec![level(0.0, 1.0, 0.0), level(0.0, 2.0, 0.0)]).is_err());
     // Unsorted input is accepted and sorted.
     let profile = ProfileField::new(vec![level(1000.0, 12.0, 0.0), level(0.0, 2.0, 0.0)]).unwrap();
-    assert!((profile.wind_at(500.0).speed_mps() - 7.0).abs() < 1e-12);
+    assert!((speed(profile.wind_at(500.0)) - 7.0).abs() < 1e-12);
 }
 
 #[test]
@@ -95,23 +116,19 @@ fn log_profile_hits_its_reference_and_roughness() {
 fn ekman_profile_has_the_right_endpoints() {
     let ekman = EkmanProfile::new(12.0, 45.0, 5.0, 0.0).unwrap();
     // Calm at the surface, geostrophic aloft.
-    assert!(ekman.wind_at(0.0).speed_mps() < 1e-12);
+    assert!(speed(ekman.wind_at(0.0)) < 1e-12);
     let aloft = ekman.wind_at(5_000.0);
     assert!(
-        (aloft.speed_mps() - 12.0).abs() / 12.0 < 1e-3,
+        (speed(aloft) - 12.0).abs() / 12.0 < 1e-3,
         "{}",
-        aloft.speed_mps()
+        speed(aloft)
     );
     // Aloft it comes FROM the requested geostrophic direction.
-    let mut dir_err = aloft.direction_from_deg();
-    if dir_err > 180.0 {
-        dir_err -= 360.0;
-    }
-    assert!(dir_err.abs() < 1.0, "dir_err {dir_err}");
+    assert!(angle_diff(direction_from(aloft), 0.0).abs() < 1.0);
     // The boundary layer turns with height: speed rises monotonically-ish
     // from zero, and the flow is rotated away from geostrophic near the ground.
     let low = ekman.wind_at(100.0);
-    assert!(low.speed_mps() > 0.0 && low.speed_mps() < 12.0);
+    assert!(speed(low) > 0.0 && speed(low) < 12.0);
     assert!(EkmanProfile::new(12.0, 90.0, 5.0, 0.0).is_err());
     assert!(EkmanProfile::new(12.0, 45.0, 0.0, 0.0).is_err());
 }
@@ -217,10 +234,9 @@ fn sounding_heights_stay_at_sea_level() {
     assert_eq!(msl.levels().len(), sounding.levels.len());
     assert_eq!(msl.levels()[0].altitude_m, 287.0);
     let first = sounding.levels[0];
-    assert_eq!(
-        msl.wind_at(287.0),
-        Wind::from_speed_direction(first.speed_mps, first.direction_from_deg)
-    );
+    let wind = msl.wind_at(287.0);
+    let expected = horizontal(first.speed_mps, first.direction_from_deg);
+    assert!((wind - expected).norm() < 1e-9, "{wind:?} vs {expected:?}");
 }
 
 #[test]
@@ -239,30 +255,23 @@ fn ekman_backs_near_the_surface_in_the_north_and_veers_in_the_south() {
     // to the LEFT of (backed from) the geostrophic wind, and the wind veers with height. With
     // +Y up and +Z to the right of +X (FROM 90° is FROM +Z), "left" is counterclockwise seen
     // from above, which lowers the FROM angle. The southern hemisphere mirrors it.
-    let turn = |w: Wind, geo: f64| {
-        let mut d = (w.direction_from_deg() - geo).rem_euclid(360.0);
-        if d > 180.0 {
-            d -= 360.0;
-        }
-        d
-    };
     let geo = 200.0;
     let north = EkmanProfile::new(10.0, 45.0, 5.0, geo).unwrap();
     let south = EkmanProfile::new(10.0, -45.0, 5.0, geo).unwrap();
     assert!(
-        (turn(north.wind_at(0.01), geo) + 45.0).abs() < 0.01,
+        (angle_diff(direction_from(north.wind_at(0.01)), geo) + 45.0).abs() < 0.01,
         "{}",
-        turn(north.wind_at(0.01), geo)
+        angle_diff(direction_from(north.wind_at(0.01)), geo)
     );
     assert!(
-        (turn(south.wind_at(0.01), geo) - 45.0).abs() < 0.01,
+        (angle_diff(direction_from(south.wind_at(0.01)), geo) - 45.0).abs() < 0.01,
         "{}",
-        turn(south.wind_at(0.01), geo)
+        angle_diff(direction_from(south.wind_at(0.01)), geo)
     );
     // Veering with height in the north: the FROM angle rises from about geo - 45°.
-    let mut previous = turn(north.wind_at(1.0), geo);
+    let mut previous = angle_diff(direction_from(north.wind_at(1.0)), geo);
     for z in [50.0, 100.0, 200.0, 400.0] {
-        let now = turn(north.wind_at(z), geo);
+        let now = angle_diff(direction_from(north.wind_at(z)), geo);
         assert!(now > previous, "z {z}: {now} <= {previous}");
         previous = now;
     }
