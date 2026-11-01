@@ -121,3 +121,27 @@ relaxes to the background within ~10%.
   fidelity — WindNinja's default): months; not planned.
 - **Tier 3** (CFD, OpenFOAM-style RANS/LES): never.
 - Any UI, raster I/O beyond the two formats above, or wildfire coupling.
+
+## Status: Hibbing range model shelved pending real data (2026-11-01)
+
+The Hibbing Rifle & Pistol Club 600 m lane model is fully built and
+deterministic:
+
+- `tests/data/hibbing_lane.tif` — real MnTOPO 2nd-gen LiDAR DEM for the
+  lane corridor (checked in).
+- `examples/range.rs` — firing line → target (566 m, bearing 41.7°), four
+  monitors at 25/40/60/75% downrange, a fixed background wind, and a
+  printed digest.
+- `tests/range_repro.rs` — pins that digest as a golden value in CI.
+
+**Blocked:** the four monitor *readings* in `range.rs` are synthetic
+placeholders (3.1/3.8/2.9/3.5 m/s at 240/225/250/220°). Real sensor data
+along the lane is not yet available, and synthetic data defeats the purpose
+of a deterministic-but-real model, so this is shelved until readings exist.
+
+To resume: replace the `readings` table in `examples/range.rs` with measured
+speed/direction per monitor (and update `tests/range_repro.rs` to match),
+re-run `cargo run --example range --features tiff` to get the new digest,
+and re-pin the golden value in `tests/range_repro.rs`. The monitor positions
+are also assumed (25/40/60/75%); correct them if the real sensor layout
+differs.
